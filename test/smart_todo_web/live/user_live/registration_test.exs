@@ -40,6 +40,7 @@ defmodule SmartTodoWeb.UserLive.RegistrationTest do
       {:ok, lv, _html} = live(conn, ~p"/users/register")
 
       attrs = valid_registration_attributes()
+
       form =
         form(lv, "#registration_form",
           user: Map.put(attrs, :password_confirmation, attrs.password)

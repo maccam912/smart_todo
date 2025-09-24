@@ -2,7 +2,6 @@ defmodule SmartTodoWeb.UserSessionControllerTest do
   use SmartTodoWeb.ConnCase, async: true
 
   import SmartTodo.AccountsFixtures
-  alias SmartTodo.Accounts
 
   setup do
     %{unconfirmed_user: unconfirmed_user_fixture(), user: user_fixture()}
@@ -26,7 +25,6 @@ defmodule SmartTodoWeb.UserSessionControllerTest do
     end
 
     test "logs the user in with remember me", %{conn: conn, user: user} do
-
       conn =
         post(conn, ~p"/users/log-in", %{
           "user" => %{
@@ -41,7 +39,6 @@ defmodule SmartTodoWeb.UserSessionControllerTest do
     end
 
     test "logs the user in with return to", %{conn: conn, user: user} do
-
       conn =
         conn
         |> init_test_session(user_return_to: "/foo/bar")

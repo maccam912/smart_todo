@@ -3,10 +3,8 @@ defmodule SmartTodo.Accounts.UserToken do
   import Ecto.Query
   alias SmartTodo.Accounts.UserToken
 
-  @hash_algorithm :sha256
   @rand_size 32
 
-  @change_email_validity_in_days 7
   @session_validity_in_days 14
 
   schema "users_tokens" do
@@ -62,54 +60,7 @@ defmodule SmartTodo.Accounts.UserToken do
     {:ok, query}
   end
 
-  @doc """
-  Builds a token and its hash to be delivered to the user's email.
-
-  Used for email change only.
-  """
-  def build_email_token(user, context) do
-    build_hashed_token(user, context, user.email)
-  end
-
-  defp build_hashed_token(user, context, sent_to) do
-    token = :crypto.strong_rand_bytes(@rand_size)
-    hashed_token = :crypto.hash(@hash_algorithm, token)
-
-    {Base.url_encode64(token, padding: false),
-     %UserToken{
-       token: hashed_token,
-       context: context,
-       sent_to: sent_to,
-       user_id: user.id
-     }}
-  end
-
-  @doc """
-  Checks if the token is valid and returns its underlying lookup query.
-
-  The query returns the user_token found by the token, if any.
-
-  This is used to validate requests to change the user
-  email.
-  The given token is valid if it matches its hashed counterpart in the
-  database and if it has not expired (after @change_email_validity_in_days).
-  The context must always start with "change:".
-  """
-  def verify_change_email_token_query(token, "change:" <> _ = context) do
-    case Base.url_decode64(token, padding: false) do
-      {:ok, decoded_token} ->
-        hashed_token = :crypto.hash(@hash_algorithm, decoded_token)
-
-        query =
-          from token in by_token_and_context_query(hashed_token, context),
-            where: token.inserted_at > ago(@change_email_validity_in_days, "day")
-
-        {:ok, query}
-
-      :error ->
-        :error
-    end
-  end
+  # Email-token building/verification removed; keep hashing for sessions only
 
   defp by_token_and_context_query(token, context) do
     from UserToken, where: [token: ^token, context: ^context]

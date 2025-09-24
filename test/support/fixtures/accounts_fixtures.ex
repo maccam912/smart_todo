@@ -22,18 +22,7 @@ defmodule SmartTodo.AccountsFixtures do
 
   def unconfirmed_user_fixture(attrs \\ %{}) do
     attrs = valid_registration_attributes(attrs)
-
     {:ok, user} = Accounts.register_user(attrs)
-
-    # Optionally set email on the user for tests that care about it
-    user =
-      case Map.get(attrs, :email) || Map.get(attrs, "email") do
-        nil -> user
-        email ->
-          {:ok, user} = SmartTodo.Repo.update(SmartTodo.Accounts.User.email_changeset(user, %{email: email}))
-          user
-      end
-
     user
   end
 

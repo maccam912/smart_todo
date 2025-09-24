@@ -6,16 +6,7 @@ defmodule SmartTodo.AccountsTest do
   import SmartTodo.AccountsFixtures
   alias SmartTodo.Accounts.{User, UserToken}
 
-  describe "get_user_by_email/1" do
-    test "does not return the user if the email does not exist" do
-      refute Accounts.get_user_by_email("unknown@example.com")
-    end
-
-    test "returns the user if the email exists" do
-      %{id: id} = user = user_fixture(%{email: unique_user_email()})
-      assert %User{id: ^id} = Accounts.get_user_by_email(user.email)
-    end
-  end
+  # Email-based lookup removed
 
   describe "get_user_by_username_and_password/2" do
     test "does not return the user if the username does not exist" do
@@ -56,16 +47,23 @@ defmodule SmartTodo.AccountsTest do
     end
 
     test "validates username format and length" do
-      {:error, changeset} = Accounts.register_user(%{username: "ab", password: valid_user_password()})
+      {:error, changeset} =
+        Accounts.register_user(%{username: "ab", password: valid_user_password()})
+
       assert %{username: ["should be at least 3 character(s)"]} = errors_on(changeset)
 
-      {:error, changeset} = Accounts.register_user(%{username: "invalid space", password: valid_user_password()})
+      {:error, changeset} =
+        Accounts.register_user(%{username: "invalid space", password: valid_user_password()})
+
       assert "only letters, numbers, underscore, dot, and dash allowed" in errors_on(changeset).username
     end
 
     test "validates username uniqueness" do
       %{username: username} = user_fixture()
-      {:error, changeset} = Accounts.register_user(%{username: username, password: valid_user_password()})
+
+      {:error, changeset} =
+        Accounts.register_user(%{username: username, password: valid_user_password()})
+
       assert "has already been taken" in errors_on(changeset).username
     end
 
@@ -96,79 +94,11 @@ defmodule SmartTodo.AccountsTest do
     end
   end
 
-  describe "change_user_email/3" do
-    test "returns a user changeset" do
-      assert %Ecto.Changeset{} = changeset = Accounts.change_user_email(%User{})
-      assert changeset.required == [:email]
-    end
-  end
+  # Email changeset removed
 
-  describe "deliver_user_update_email_instructions/3" do
-    setup do
-      %{user: user_fixture()}
-    end
+  # Email instruction delivery removed
 
-    test "sends token through notification", %{user: user} do
-      token =
-        extract_user_token(fn url ->
-          Accounts.deliver_user_update_email_instructions(user, "current@example.com", url)
-        end)
-
-      {:ok, token} = Base.url_decode64(token, padding: false)
-      assert user_token = Repo.get_by(UserToken, token: :crypto.hash(:sha256, token))
-      assert user_token.user_id == user.id
-      assert user_token.sent_to == user.email
-      assert user_token.context == "change:current@example.com"
-    end
-  end
-
-  describe "update_user_email/2" do
-    setup do
-      user = unconfirmed_user_fixture()
-      email = unique_user_email()
-
-      token =
-        extract_user_token(fn url ->
-          Accounts.deliver_user_update_email_instructions(%{user | email: email}, user.email, url)
-        end)
-
-      %{user: user, token: token, email: email}
-    end
-
-    test "updates the email with a valid token", %{user: user, token: token, email: email} do
-      assert {:ok, %{email: ^email}} = Accounts.update_user_email(user, token)
-      changed_user = Repo.get!(User, user.id)
-      assert changed_user.email != user.email
-      assert changed_user.email == email
-      refute Repo.get_by(UserToken, user_id: user.id)
-    end
-
-    test "does not update email with invalid token", %{user: user} do
-      assert Accounts.update_user_email(user, "oops") ==
-               {:error, :transaction_aborted}
-
-      assert Repo.get!(User, user.id).email == user.email
-      assert Repo.get_by(UserToken, user_id: user.id)
-    end
-
-    test "does not update email if user email changed", %{user: user, token: token} do
-      assert Accounts.update_user_email(%{user | email: "current@example.com"}, token) ==
-               {:error, :transaction_aborted}
-
-      assert Repo.get!(User, user.id).email == user.email
-      assert Repo.get_by(UserToken, user_id: user.id)
-    end
-
-    test "does not update email if token expired", %{user: user, token: token} do
-      {1, nil} = Repo.update_all(UserToken, set: [inserted_at: ~N[2020-01-01 00:00:00]])
-
-      assert Accounts.update_user_email(user, token) ==
-               {:error, :transaction_aborted}
-
-      assert Repo.get!(User, user.id).email == user.email
-      assert Repo.get_by(UserToken, user_id: user.id)
-    end
-  end
+  # Email update flow removed
 
   describe "change_user_password/3" do
     test "returns a user changeset" do

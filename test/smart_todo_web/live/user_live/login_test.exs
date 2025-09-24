@@ -71,7 +71,9 @@ defmodule SmartTodoWeb.UserLive.LoginTest do
 
       assert html =~ "You need to reauthenticate"
       refute html =~ "Register"
-      assert html =~ ~s(<input type="text" name="user[username]" id="login_form_password_username" value="#{user.username}")
+
+      assert html =~
+               ~s(<input type="text" name="user[username]" id="login_form_password_username" value="#{user.username}")
     end
   end
 end
