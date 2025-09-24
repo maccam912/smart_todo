@@ -37,7 +37,8 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
 
     doc = LazyHTML.from_fragment(html)
     # ensure prerequisite option remains selected
-    assert LazyHTML.filter(doc, ~s/select#task_prereq_ids option[value="#{a.id}"][selected]/) != []
+    assert LazyHTML.filter(doc, ~s/select#task_prereq_ids option[value="#{a.id}"][selected]/) !=
+             []
   end
 
   test "create a task via quick form and list updates", %{conn: conn} do

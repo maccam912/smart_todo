@@ -9,4 +9,3 @@ defmodule SmartTodoWeb.RootRedirectController do
     end
   end
 end
-

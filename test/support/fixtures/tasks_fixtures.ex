@@ -21,6 +21,7 @@ defmodule SmartTodo.TasksFixtures do
       else
         []
       end
+
     task = task_fixture(user, attrs)
 
     {:ok, :ok} =
@@ -29,6 +30,7 @@ defmodule SmartTodo.TasksFixtures do
         task.id,
         Enum.map(prereqs, & &1.id)
       )
+
     SmartTodo.Tasks.get_task!(Scope.for_user(user), task.id)
   end
 

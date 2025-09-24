@@ -64,7 +64,9 @@ defmodule SmartTodo.TasksTest do
       b = Tasks.get_task!(scope, b.id)
 
       assert {:error, %Ecto.Changeset{} = cs} = Tasks.complete_task(scope, b)
-      assert {"cannot complete: has incomplete prerequisites", _} = Keyword.get(cs.errors, :status)
+
+      assert {"cannot complete: has incomplete prerequisites", _} =
+               Keyword.get(cs.errors, :status)
     end
 
     test "completing a task with recurrence creates next instance" do
@@ -77,7 +79,9 @@ defmodule SmartTodo.TasksTest do
       assert done.status == :done
 
       # The next instance should exist with advanced due date and todo status
-      next_titles = Tasks.list_tasks(scope) |> Enum.filter(&(&1.title == "R" and &1.status == :todo))
+      next_titles =
+        Tasks.list_tasks(scope) |> Enum.filter(&(&1.title == "R" and &1.status == :todo))
+
       assert Enum.any?(next_titles)
       assert Enum.any?(next_titles, &(&1.due_date == Date.add(due, 1)))
     end

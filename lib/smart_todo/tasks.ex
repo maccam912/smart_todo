@@ -120,6 +120,7 @@ defmodule SmartTodo.Tasks do
         {:ok, task} ->
           if task.recurrence != :none do
             next_due = advance_due_date(task.due_date, task.recurrence)
+
             _ =
               %Task{user_id: task.user_id, assignee_id: task.assignee_id}
               |> Task.changeset(%{
@@ -183,6 +184,7 @@ defmodule SmartTodo.Tasks do
       |> Repo.delete_all()
 
       now = DateTime.utc_now(:second)
+
       inserts =
         Enum.map(valid_ids, fn id ->
           %{
