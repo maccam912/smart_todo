@@ -64,12 +64,95 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
     {:ok, lv, _} = live(conn, ~p"/tasks")
 
     # button for B is disabled
-    assert has_element?(lv, ~s/button[phx-value-id="#{b.id}"][disabled]/)
+    assert has_element?(
+             lv,
+             "button[phx-click=\"toggle_done\"][phx-value-id=\"#{b.id}\"][disabled]"
+           )
+
+    assert has_element?(lv, "#blocked-tasks div[id=\"blocked_tasks-#{b.id}\"] li", a.title)
+    assert has_element?(lv, "#ready-tasks div[id=\"ready_tasks-#{a.id}\"] li", b.title)
 
     # complete A via click
-    _ = lv |> element(~s/button[phx-value-id="#{a.id}"]/) |> render_click()
+    _ =
+      lv
+      |> element("button[phx-click=\"toggle_done\"][phx-value-id=\"#{a.id}\"]")
+      |> render_click()
 
     # now B's button should be enabled
-    refute has_element?(lv, ~s/button[phx-value-id="#{b.id}"][disabled]/)
+    refute has_element?(
+             lv,
+             "button[phx-click=\"toggle_done\"][phx-value-id=\"#{b.id}\"][disabled]"
+           )
+  end
+
+  test "edit task button loads form and saves changes", %{conn: conn} do
+    user = user_fixture()
+    conn = log_in_user(conn, user)
+    prep = task_fixture(user, %{title: "Prep"})
+    task = task_fixture(user, %{title: "Main"})
+    scope = Scope.for_user(user)
+    assert {:ok, :ok} = Tasks.upsert_dependencies(scope, task.id, [prep.id])
+
+    {:ok, lv, _} = live(conn, ~p"/tasks")
+
+    html =
+      lv
+      |> element("button[phx-click=\"edit_task\"][phx-value-id=\"#{task.id}\"]")
+      |> render_click()
+
+    assert html =~ "Edit task"
+    assert has_element?(lv, "#edit-task-form")
+
+    doc = LazyHTML.from_fragment(render(lv))
+
+    assert LazyHTML.filter(
+             doc,
+             "select#edit_task_prereq_ids option[value=\"#{prep.id}\"][selected]"
+           ) != []
+
+    params = %{"task" => %{"title" => "Updated main", "prerequisite_ids" => []}}
+    html = lv |> element("#edit-task-form") |> render_submit(params)
+
+    assert html =~ "Task updated"
+    refute has_element?(lv, "#edit-task-form")
+    assert render(lv) =~ "Updated main"
+  end
+
+  test "trash button deletes task", %{conn: conn} do
+    user = user_fixture()
+    conn = log_in_user(conn, user)
+    task = task_fixture(user, %{title: "Temp"})
+
+    {:ok, lv, _} = live(conn, ~p"/tasks")
+
+    html =
+      lv
+      |> element("button[phx-click=\"trash_task\"][phx-value-id=\"#{task.id}\"]")
+      |> render_click()
+
+    assert html =~ "Task deleted"
+    refute has_element?(lv, "button[phx-click=\"toggle_done\"][phx-value-id=\"#{task.id}\"]")
+  end
+
+  test "completed tasks become visible after toggling show", %{conn: conn} do
+    user = user_fixture()
+    conn = log_in_user(conn, user)
+    scope = Scope.for_user(user)
+
+    task = task_fixture(user, %{title: "Finished"})
+    assert {:ok, _} = Tasks.update_task(scope, task, %{status: :done})
+
+    {:ok, lv, _} = live(conn, ~p"/tasks")
+
+    assert has_element?(lv, "#completed-tasks.hidden")
+
+    _html =
+      lv
+      |> element("button[phx-click=\"toggle_completed\"]")
+      |> render_click()
+
+    refute has_element?(lv, "#completed-tasks.hidden")
+
+    assert has_element?(lv, "#completed-tasks div[id^=\"completed_tasks-\"]")
   end
 end

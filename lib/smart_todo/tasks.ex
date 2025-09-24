@@ -73,15 +73,20 @@ defmodule SmartTodo.Tasks do
   def create_task(current_scope, attrs) when is_map(attrs) do
     uid = user_id!(current_scope)
 
-    prereq_ids = Map.get(attrs, "prerequisite_ids") || Map.get(attrs, :prerequisite_ids) || []
-    attrs = Map.drop(attrs, ["prerequisite_ids", :prerequisite_ids])
+    {attrs, prereq_ids, _present?} = split_prereq_params(attrs)
 
     %Task{user_id: uid, assignee_id: uid}
     |> Task.changeset(attrs)
     |> Repo.insert()
     |> case do
       {:ok, task} ->
-        _ = upsert_dependencies(current_scope, task.id, prereq_ids)
+        _ =
+          if prereq_ids == [] do
+            :ok
+          else
+            upsert_dependencies(current_scope, task.id, prereq_ids)
+          end
+
         {:ok, get_task!(current_scope, task.id)}
 
       error ->
@@ -92,12 +97,43 @@ defmodule SmartTodo.Tasks do
   @doc """
   Updates a task owned by the current user.
   """
-  def update_task(current_scope, %Task{} = task, attrs) do
+  def update_task(current_scope, %Task{} = task, attrs) when is_map(attrs) do
     _uid = user_id!(current_scope)
+
+    {attrs, prereq_ids, prereq_present?} = split_prereq_params(attrs)
 
     task
     |> Task.changeset(attrs)
     |> Repo.update()
+    |> case do
+      {:ok, task} ->
+        task =
+          if prereq_present? do
+            _ = upsert_dependencies(current_scope, task.id, prereq_ids)
+            get_task!(current_scope, task.id)
+          else
+            task
+          end
+
+        {:ok, task}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Deletes a task owned by the current user along with its dependencies.
+  """
+  def delete_task(current_scope, %Task{} = task) do
+    _uid = user_id!(current_scope)
+
+    Repo.delete(task)
+  end
+
+  def delete_task(current_scope, id) when is_integer(id) do
+    task = get_task!(current_scope, id)
+    delete_task(current_scope, task)
   end
 
   @doc """
@@ -199,6 +235,42 @@ defmodule SmartTodo.Tasks do
       :ok
     end)
   end
+
+  defp split_prereq_params(attrs) do
+    value_present? =
+      Map.has_key?(attrs, "prerequisite_ids") or Map.has_key?(attrs, :prerequisite_ids)
+
+    value =
+      cond do
+        Map.has_key?(attrs, "prerequisite_ids") -> Map.get(attrs, "prerequisite_ids")
+        Map.has_key?(attrs, :prerequisite_ids) -> Map.get(attrs, :prerequisite_ids)
+        true -> nil
+      end
+
+    attrs =
+      attrs
+      |> Map.delete("prerequisite_ids")
+      |> Map.delete(:prerequisite_ids)
+
+    normalized = normalize_prereq_ids(value)
+
+    {attrs, normalized, value_present?}
+  end
+
+  defp normalize_prereq_ids(nil), do: []
+  defp normalize_prereq_ids(""), do: []
+
+  defp normalize_prereq_ids(ids) when is_list(ids) do
+    ids
+    |> Enum.reject(&(&1 in ["", nil]))
+    |> Enum.map(fn
+      id when is_integer(id) -> id
+      id when is_binary(id) -> String.to_integer(id)
+    end)
+  end
+
+  defp normalize_prereq_ids(id) when is_integer(id), do: [id]
+  defp normalize_prereq_ids(id) when is_binary(id), do: [String.to_integer(id)]
 
   def remove_dependency(current_scope, blocked_task_id, prereq_task_id) do
     _uid = user_id!(current_scope)

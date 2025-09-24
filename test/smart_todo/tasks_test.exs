@@ -31,6 +31,49 @@ defmodule SmartTodo.TasksTest do
     end
   end
 
+  describe "update_task/3" do
+    test "updates task attributes" do
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      task = task_fixture(user, %{title: "Initial"})
+
+      assert {:ok, updated} = Tasks.update_task(scope, task, %{"title" => "Revised"})
+      assert updated.title == "Revised"
+    end
+
+    test "replaces prerequisites when ids provided" do
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      prereq = task_fixture(user, %{title: "Prep"})
+      other = task_fixture(user, %{title: "Other"})
+      task = task_fixture(user, %{title: "Main"})
+
+      assert {:ok, :ok} = Tasks.upsert_dependencies(scope, task.id, [other.id])
+
+      assert {:ok, updated} =
+               Tasks.update_task(scope, task, %{
+                 "prerequisite_ids" => [Integer.to_string(prereq.id)]
+               })
+
+      assert Enum.map(updated.prerequisites, & &1.id) == [prereq.id]
+    end
+  end
+
+  describe "delete_task/2" do
+    test "removes the task and cascading dependencies" do
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      prereq = task_fixture(user)
+      task = task_fixture(user)
+
+      assert {:ok, :ok} = Tasks.upsert_dependencies(scope, task.id, [prereq.id])
+
+      assert {:ok, deleted} = Tasks.delete_task(scope, task.id)
+      assert deleted.id == task.id
+      assert_raise Ecto.NoResultsError, fn -> Tasks.get_task!(scope, task.id) end
+    end
+  end
+
   describe "scoping and access" do
     test "get_task!/2 raises for other users' tasks" do
       owner = user_fixture()

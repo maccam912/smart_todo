@@ -21,6 +21,9 @@ defmodule SmartTodoWeb.TaskLive.Index do
       |> assign(:quick_form, to_form(%{"title" => ""}, as: "quick_task"))
       |> assign(:selected_prereq_ids, [])
       |> assign(:form, form)
+      |> assign(:editing_task_id, nil)
+      |> assign(:edit_form, nil)
+      |> assign(:edit_selected_prereq_ids, [])
       |> assign(:show_completed?, false)
       |> assign(:prereq_options, prereq_options(tasks))
 
@@ -113,6 +116,112 @@ defmodule SmartTodoWeb.TaskLive.Index do
   @impl true
   def handle_event("toggle_completed", _params, socket) do
     {:noreply, update(socket, :show_completed?, &(!&1))}
+  end
+
+  @impl true
+  def handle_event("edit_task", %{"id" => id}, socket) do
+    task = Tasks.get_task!(socket.assigns.current_scope, String.to_integer(id))
+
+    form =
+      task
+      |> Tasks.change_task()
+      |> to_form()
+
+    selected = Enum.map(task.prerequisites, &Integer.to_string(&1.id))
+
+    {:noreply,
+     socket
+     |> assign(:editing_task_id, task.id)
+     |> assign(:edit_form, form)
+     |> assign(:edit_selected_prereq_ids, selected)
+     |> assign(:advanced_open?, false)}
+  end
+
+  @impl true
+  def handle_event("cancel_edit", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:editing_task_id, nil)
+     |> assign(:edit_form, nil)
+     |> assign(:edit_selected_prereq_ids, [])}
+  end
+
+  @impl true
+  def handle_event("edit_validate", %{"task" => params}, socket) do
+    case socket.assigns.edit_form do
+      nil ->
+        {:noreply, socket}
+
+      form ->
+        changeset = form.source.data |> Tasks.change_task(params) |> Map.put(:action, :validate)
+
+        {:noreply,
+         socket
+         |> assign(:edit_form, to_form(changeset))
+         |> assign(:edit_selected_prereq_ids, Map.get(params, "prerequisite_ids", []))}
+    end
+  end
+
+  @impl true
+  def handle_event("update_task", %{"task" => params}, socket) do
+    case socket.assigns.editing_task_id do
+      nil ->
+        {:noreply, socket}
+
+      task_id ->
+        task = Tasks.get_task!(socket.assigns.current_scope, task_id)
+
+        case Tasks.update_task(socket.assigns.current_scope, task, params) do
+          {:ok, _task} ->
+            tasks = Tasks.list_tasks(socket.assigns.current_scope)
+
+            socket =
+              socket
+              |> put_flash(:info, "Task updated")
+              |> assign(:prereq_options, prereq_options(tasks))
+              |> assign(:editing_task_id, nil)
+              |> assign(:edit_form, nil)
+              |> assign(:edit_selected_prereq_ids, [])
+
+            {:noreply, assign_task_lists(socket, tasks, reset: true)}
+
+          {:error, %Ecto.Changeset{} = changeset} ->
+            {:noreply,
+             socket
+             |> assign(:edit_form, to_form(changeset))
+             |> assign(:edit_selected_prereq_ids, Map.get(params, "prerequisite_ids", []))}
+        end
+    end
+  end
+
+  @impl true
+  def handle_event("trash_task", %{"id" => id}, socket) do
+    task_id = String.to_integer(id)
+
+    case Tasks.delete_task(socket.assigns.current_scope, task_id) do
+      {:ok, deleted_task} ->
+        tasks = Tasks.list_tasks(socket.assigns.current_scope)
+
+        socket =
+          socket
+          |> put_flash(:info, "Task deleted")
+          |> assign(:prereq_options, prereq_options(tasks))
+
+        socket =
+          if socket.assigns.editing_task_id == deleted_task.id do
+            socket
+            |> assign(:editing_task_id, nil)
+            |> assign(:edit_form, nil)
+            |> assign(:edit_selected_prereq_ids, [])
+          else
+            socket
+          end
+
+        {:noreply, assign_task_lists(socket, tasks, reset: true)}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Could not delete task")}
+    end
   end
 
   defp prereq_options(tasks) do
@@ -247,6 +356,70 @@ defmodule SmartTodoWeb.TaskLive.Index do
         </div>
       </div>
 
+      <div :if={@edit_form} class="card bg-base-200 border border-secondary/40 mt-4">
+        <div class="card-body">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="card-title">Edit task</h2>
+            <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel_edit">
+              Cancel
+            </button>
+          </div>
+          <.form
+            for={@edit_form}
+            id="edit-task-form"
+            phx-change="edit_validate"
+            phx-submit="update_task"
+          >
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <.input field={@edit_form[:title]} label="Title" required />
+              <.input field={@edit_form[:due_date]} type="date" label="Due date" />
+
+              <.input
+                field={@edit_form[:urgency]}
+                type="select"
+                label="Urgency"
+                prompt="Select"
+                options={for u <- Task.urgency_values(), do: {Phoenix.Naming.humanize(u), u}}
+              />
+
+              <.input
+                field={@edit_form[:recurrence]}
+                type="select"
+                label="Recurrence"
+                prompt="None"
+                options={for r <- Task.recurrence_values(), do: {Phoenix.Naming.humanize(r), r}}
+              />
+
+              <.input
+                field={@edit_form[:description]}
+                type="textarea"
+                label="Description"
+                class="textarea textarea-bordered"
+              />
+
+              <.input
+                id="edit_task_prereq_ids"
+                name="task[prerequisite_ids]"
+                type="select"
+                label="Prerequisites"
+                multiple
+                value={@edit_selected_prereq_ids}
+                options={@prereq_options}
+                prompt="Select tasks that must be completed first"
+              />
+            </div>
+            <div class="mt-4 flex justify-end gap-2">
+              <button type="button" class="btn btn-ghost" phx-click="cancel_edit">
+                <.icon name="hero-x-mark" class="w-5 h-5 mr-1" /> Cancel
+              </button>
+              <button class="btn btn-primary" type="submit">
+                <.icon name="hero-check" class="w-5 h-5 mr-1" /> Save changes
+              </button>
+            </div>
+          </.form>
+        </div>
+      </div>
+
       <p :if={@tasks_empty?} class="mt-8 text-sm text-base-content/70">
         No tasks yet — add your first one above.
       </p>
@@ -266,6 +439,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
               id={id}
               task={task}
               variant={:urgent}
+              editing={@editing_task_id == task.id}
             />
           </div>
         </section>
@@ -279,7 +453,12 @@ defmodule SmartTodoWeb.TaskLive.Index do
             Everything ready to start is already covered above.
           </p>
           <div :if={!@ready_empty?} id="ready-tasks" phx-update="stream" class="mt-4 space-y-3">
-            <.task_card :for={{id, task} <- @streams.ready_tasks} id={id} task={task} />
+            <.task_card
+              :for={{id, task} <- @streams.ready_tasks}
+              id={id}
+              task={task}
+              editing={@editing_task_id == task.id}
+            />
           </div>
         </section>
 
@@ -297,6 +476,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
               id={id}
               task={task}
               variant={:blocked}
+              editing={@editing_task_id == task.id}
             />
           </div>
         </section>
@@ -324,16 +504,19 @@ defmodule SmartTodoWeb.TaskLive.Index do
             Mark tasks as done to see them here.
           </p>
           <div
-            :if={@show_completed? and not @completed_empty?}
             id="completed-tasks"
             phx-update="stream"
-            class="mt-4 space-y-3"
+            class={[
+              "mt-4 space-y-3",
+              (!@show_completed? || @completed_empty?) && "hidden"
+            ]}
           >
             <.task_card
               :for={{id, task} <- @streams.completed_tasks}
               id={id}
               task={task}
               variant={:completed}
+              editing={@editing_task_id == task.id}
             />
           </div>
         </section>
@@ -345,10 +528,11 @@ defmodule SmartTodoWeb.TaskLive.Index do
   attr :id, :string, required: true
   attr :task, SmartTodo.Tasks.Task, required: true
   attr :variant, :atom, default: :default
+  attr :editing, :boolean, default: false
 
   defp task_card(assigns) do
     ~H"""
-    <div id={@id} class={task_card_classes(@variant)}>
+    <div id={@id} class={task_card_classes(@variant, @editing)}>
       <div class="card-body flex flex-row items-start gap-4">
         <button
           phx-click="toggle_done"
@@ -367,31 +551,89 @@ defmodule SmartTodoWeb.TaskLive.Index do
         </button>
 
         <div class="flex-1">
-          <div class="flex items-center gap-2">
-            <h3 class={[
-              "font-medium",
-              @task.status == :done && "line-through opacity-70"
-            ]}>
-              {@task.title}
-            </h3>
-            <span class="badge badge-outline">{Phoenix.Naming.humanize(@task.urgency)}</span>
-            <span :if={@task.due_date} class="badge badge-ghost">
-              <.icon name="hero-calendar" class="w-4 h-4 mr-1" />
-              {Calendar.strftime(@task.due_date, "%Y-%m-%d")}
-            </span>
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <h3 class={[
+                "font-medium",
+                @task.status == :done && "line-through opacity-70"
+              ]}>
+                {@task.title}
+              </h3>
+              <span class="badge badge-outline">{Phoenix.Naming.humanize(@task.urgency)}</span>
+              <span :if={@task.due_date} class="badge badge-ghost">
+                <.icon name="hero-calendar" class="w-4 h-4 mr-1" />
+                {Calendar.strftime(@task.due_date, "%Y-%m-%d")}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                phx-click="edit_task"
+                phx-value-id={@task.id}
+                disabled={@editing}
+                aria-label="Edit task"
+              >
+                <.icon name="hero-pencil-square" class="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                phx-click="trash_task"
+                phx-value-id={@task.id}
+                data-confirm="Delete this task?"
+                aria-label="Delete task"
+              >
+                <.icon name="hero-trash" class="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <p :if={@task.description} class="text-sm text-base-content/70 mt-1">
             {@task.description}
           </p>
 
-          <div class="mt-2 text-sm text-base-content/70 flex items-center gap-4">
-            <div :if={Enum.count(@task.prerequisites) > 0} class="flex items-center gap-1">
-              <.icon name="hero-arrow-up-right" class="w-4 h-4" />
-              Blocked by {incomplete_count(@task)} / {Enum.count(@task.prerequisites)}
+          <div class="mt-3 space-y-3 text-sm text-base-content/70">
+            <div :if={Enum.count(@task.prerequisites) > 0} class="space-y-1">
+              <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                <.icon name="hero-arrow-up-right" class="w-4 h-4" />
+                Blocked by ({incomplete_count(@task)} / {Enum.count(@task.prerequisites)})
+              </div>
+              <ul class="space-y-1">
+                <li
+                  :for={pre <- @task.prerequisites}
+                  class="flex items-center gap-2"
+                >
+                  <span class={status_badge_classes(pre.status)}>{status_label(pre.status)}</span>
+                  <span class={[
+                    "truncate",
+                    pre.status != :done && "font-medium text-base-content"
+                  ]}>
+                    {pre.title}
+                  </span>
+                </li>
+              </ul>
             </div>
-            <div :if={Enum.count(@task.dependents) > 0} class="flex items-center gap-1">
-              <.icon name="hero-arrow-down-left" class="w-4 h-4" />
-              Unlocks {Enum.count(@task.dependents)} downstream
+
+            <div :if={Enum.count(@task.dependents) > 0} class="space-y-1">
+              <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                <.icon name="hero-arrow-down-left" class="w-4 h-4" />
+                Unlocks {Enum.count(@task.dependents)} downstream
+              </div>
+              <ul class="space-y-1">
+                <li
+                  :for={dep <- @task.dependents}
+                  class="flex items-center gap-2"
+                >
+                  <span class={status_badge_classes(dep.status)}>{status_label(dep.status)}</span>
+                  <span class={[
+                    "truncate",
+                    dep.status == :todo && "font-medium text-base-content"
+                  ]}>
+                    {dep.title}
+                  </span>
+                </li>
+              </ul>
             </div>
           </div>
         </div>
@@ -400,10 +642,27 @@ defmodule SmartTodoWeb.TaskLive.Index do
     """
   end
 
-  defp task_card_classes(:urgent), do: ["card bg-base-200 border border-primary/60"]
-  defp task_card_classes(:blocked), do: ["card bg-base-200 border border-warning/50"]
-  defp task_card_classes(:completed), do: ["card bg-base-200 border border-base-300 opacity-60"]
-  defp task_card_classes(:default), do: ["card bg-base-200 border border-base-300"]
+  defp task_card_classes(:urgent, editing?),
+    do: decorate_classes(["card bg-base-200 border border-primary/60"], editing?)
+
+  defp task_card_classes(:blocked, editing?),
+    do: decorate_classes(["card bg-base-200 border border-warning/50"], editing?)
+
+  defp task_card_classes(:completed, editing?),
+    do: decorate_classes(["card bg-base-200 border border-base-300 opacity-60"], editing?)
+
+  defp task_card_classes(:default, editing?),
+    do: decorate_classes(["card bg-base-200 border border-base-300"], editing?)
+
+  defp decorate_classes(classes, false), do: classes
+  defp decorate_classes(classes, true), do: classes ++ ["ring ring-primary/60 shadow-lg"]
+
+  defp status_badge_classes(:done), do: ["badge badge-sm badge-success"]
+  defp status_badge_classes(:in_progress), do: ["badge badge-sm badge-info"]
+  defp status_badge_classes(:todo), do: ["badge badge-sm badge-outline"]
+  defp status_badge_classes(_), do: ["badge badge-sm badge-ghost"]
+
+  defp status_label(status), do: Phoenix.Naming.humanize(status)
 
   defp blocked?(task) do
     Enum.any?(task.prerequisites, &(&1.status != :done))
