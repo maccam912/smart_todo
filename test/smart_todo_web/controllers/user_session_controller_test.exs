@@ -15,13 +15,11 @@ defmodule SmartTodoWeb.UserSessionControllerTest do
         })
 
       assert get_session(conn, :user_token)
-      assert redirected_to(conn) == ~p"/"
+      assert redirected_to(conn) == ~p"/tasks"
 
-      # Now do a logged in request and assert on the menu
+      # Now do a logged in request and assert redirect to tasks
       conn = get(conn, ~p"/")
-      response = html_response(conn, 200)
-      assert response =~ ~p"/users/settings"
-      assert response =~ ~p"/users/log-out"
+      assert redirected_to(conn) == ~p"/tasks"
     end
 
     test "logs the user in with remember me", %{conn: conn, user: user} do
@@ -35,7 +33,7 @@ defmodule SmartTodoWeb.UserSessionControllerTest do
         })
 
       assert conn.resp_cookies["_smart_todo_web_user_remember_me"]
-      assert redirected_to(conn) == ~p"/"
+      assert redirected_to(conn) == ~p"/tasks"
     end
 
     test "logs the user in with return to", %{conn: conn, user: user} do

@@ -19,8 +19,8 @@ defmodule SmartTodoWeb.Router do
 
   scope "/", SmartTodoWeb do
     pipe_through :browser
-
-    get "/", PageController, :home
+    # Root redirects based on authentication state
+    get "/", RootRedirectController, :index
   end
 
   # Other scopes may use custom stacks.
@@ -53,6 +53,8 @@ defmodule SmartTodoWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{SmartTodoWeb.UserAuth, :require_authenticated}] do
       live "/users/settings", UserLive.Settings, :edit
+      # Authenticated routes
+      live "/tasks", TaskLive.Index, :index
     end
 
     post "/users/update-password", UserSessionController, :update_password

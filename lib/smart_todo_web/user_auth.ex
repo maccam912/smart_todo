@@ -35,9 +35,8 @@ defmodule SmartTodoWeb.UserAuth do
   def log_in_user(conn, user, params \\ %{}) do
     user_return_to = get_session(conn, :user_return_to)
 
-    conn
-    |> create_or_extend_session(user, params)
-    |> redirect(to: user_return_to || signed_in_path(conn))
+    conn = create_or_extend_session(conn, user, params)
+    redirect(conn, to: user_return_to || signed_in_path(conn))
   end
 
   @doc """
@@ -258,11 +257,10 @@ defmodule SmartTodoWeb.UserAuth do
 
   @doc "Returns the path to redirect to after log in."
   # the user was already logged in, redirect to settings
-  def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %Accounts.User{}}}}) do
-    ~p"/users/settings"
-  end
-
-  def signed_in_path(_), do: ~p"/"
+  # Destination after a successful login or when already authenticated
+  def signed_in_path(%Plug.Conn{}), do: ~p"/tasks"
+  def signed_in_path(%Phoenix.LiveView.Socket{}), do: ~p"/tasks"
+  def signed_in_path(_), do: ~p"/tasks"
 
   @doc """
   Plug for routes that require the user to be authenticated.

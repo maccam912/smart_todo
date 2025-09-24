@@ -44,19 +44,22 @@ defmodule SmartTodoWeb.Layouts do
       </div>
       <div class="flex-none">
         <ul class="flex flex-column px-1 space-x-4 items-center">
+          <li><.theme_toggle /></li>
           <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
+            <.link navigate={~p"/tasks"} class="btn btn-ghost">
+              <.icon name="hero-clipboard-document-check" class="w-5 h-5 mr-1" /> My Tasks
+            </.link>
           </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
+          <li :if={@current_scope}>
+            <form action={~p"/users/log-out"} method="post">
+              <input type="hidden" name="_method" value="delete" />
+              <button class="btn btn-primary" type="submit">
+                <.icon name="hero-arrow-right-start-on-rectangle" class="w-5 h-5 mr-1" /> Log out
+              </button>
+            </form>
           </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
+          <li :if={!@current_scope}>
+            <.link navigate={~p"/users/log-in"} class="btn btn-primary">Log in</.link>
           </li>
         </ul>
       </div>
