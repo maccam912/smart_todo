@@ -28,10 +28,10 @@ defmodule SmartTodoWeb.UserLive.RegistrationTest do
       result =
         lv
         |> element("#registration_form")
-        |> render_change(user: %{"email" => "with spaces"})
+        |> render_change(user: %{"username" => "ab"})
 
       assert result =~ "Register"
-      assert result =~ "must have the @ sign and no spaces"
+      assert result =~ "should be at least 3 character(s)"
     end
   end
 
@@ -39,26 +39,28 @@ defmodule SmartTodoWeb.UserLive.RegistrationTest do
     test "creates account but does not log in", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/users/register")
 
-      email = unique_user_email()
-      form = form(lv, "#registration_form", user: valid_user_attributes(email: email))
+      attrs = valid_registration_attributes()
+      form =
+        form(lv, "#registration_form",
+          user: Map.put(attrs, :password_confirmation, attrs.password)
+        )
 
       {:ok, _lv, html} =
         render_submit(form)
         |> follow_redirect(conn, ~p"/users/log-in")
 
-      assert html =~
-               ~r/An email was sent to .*, please access it to confirm your account/
+      assert html =~ "Account created. You can log in now."
     end
 
-    test "renders errors for duplicated email", %{conn: conn} do
+    test "renders errors for duplicated username", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/users/register")
 
-      user = user_fixture(%{email: "test@email.com"})
+      user = user_fixture(%{username: "taken_name"})
 
       result =
         lv
         |> form("#registration_form",
-          user: %{"email" => user.email}
+          user: %{"username" => user.username}
         )
         |> render_submit()
 

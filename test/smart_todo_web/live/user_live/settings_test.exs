@@ -39,7 +39,7 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
 
   describe "update email form" do
     setup %{conn: conn} do
-      user = user_fixture()
+      user = user_fixture(%{email: unique_user_email()})
       %{conn: log_in_user(conn, user), user: user}
     end
 
@@ -103,7 +103,7 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
       form =
         form(lv, "#password_form", %{
           "user" => %{
-            "email" => user.email,
+            "username" => user.username,
             "password" => new_password,
             "password_confirmation" => new_password
           }
@@ -120,7 +120,7 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
       assert Phoenix.Flash.get(new_password_conn.assigns.flash, :info) =~
                "Password updated successfully"
 
-      assert Accounts.get_user_by_email_and_password(user.email, new_password)
+      assert Accounts.get_user_by_username_and_password(user.username, new_password)
     end
 
     test "renders errors with invalid data (phx-change)", %{conn: conn} do
@@ -162,7 +162,7 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
 
   describe "confirm email" do
     setup %{conn: conn} do
-      user = user_fixture()
+      user = user_fixture(%{email: unique_user_email()})
       email = unique_user_email()
 
       token =

@@ -4,6 +4,7 @@ defmodule SmartTodo.Accounts.User do
 
   schema "users" do
     field :email, :string
+    field :username, :string
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
@@ -46,6 +47,57 @@ defmodule SmartTodo.Accounts.User do
     else
       changeset
     end
+  end
+
+  @doc """
+  A user changeset for creating or changing the username.
+
+  ## Options
+
+    * `:validate_unique` - Set to false if you don't want to validate the
+      uniqueness of the username, useful when displaying live validations.
+      Defaults to `true`.
+  """
+  def username_changeset(user, attrs, opts \\ []) do
+    user
+    |> cast(attrs, [:username])
+    |> validate_username(opts)
+  end
+
+  defp validate_username(changeset, opts) do
+    changeset =
+      changeset
+      |> validate_required([:username])
+      |> validate_length(:username, min: 3, max: 32)
+      |> validate_format(:username, ~r/^[a-zA-Z0-9_\.\-]+$/,
+        message: "only letters, numbers, underscore, dot, and dash allowed"
+      )
+
+    if Keyword.get(opts, :validate_unique, true) do
+      changeset
+      |> unsafe_validate_unique(:username, SmartTodo.Repo)
+      |> unique_constraint(:username)
+    else
+      changeset
+    end
+  end
+
+  @doc """
+  A user changeset for registering with username and password.
+
+  Email is optional here and can be set later from settings.
+
+  ## Options
+
+    * `:hash_password` - see `password_changeset/3`
+    * `:validate_unique` - whether to check username uniqueness
+  """
+  def registration_changeset(user, attrs, opts \\ []) do
+    user
+    |> cast(attrs, [:username, :password])
+    |> validate_username(opts)
+    |> validate_confirmation(:password, message: "does not match password")
+    |> validate_password(opts)
   end
 
   defp validate_email_changed(changeset) do

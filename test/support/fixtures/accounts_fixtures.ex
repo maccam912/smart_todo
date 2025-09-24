@@ -10,35 +10,36 @@ defmodule SmartTodo.AccountsFixtures do
   alias SmartTodo.Accounts.Scope
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
+  def unique_username, do: "user_#{System.unique_integer()}"
   def valid_user_password, do: "hello world!"
 
-  def valid_user_attributes(attrs \\ %{}) do
+  def valid_registration_attributes(attrs \\ %{}) do
     Enum.into(attrs, %{
-      email: unique_user_email()
+      username: unique_username(),
+      password: valid_user_password()
     })
   end
 
   def unconfirmed_user_fixture(attrs \\ %{}) do
-    {:ok, user} =
-      attrs
-      |> valid_user_attributes()
-      |> Accounts.register_user()
+    attrs = valid_registration_attributes(attrs)
+
+    {:ok, user} = Accounts.register_user(attrs)
+
+    # Optionally set email on the user for tests that care about it
+    user =
+      case Map.get(attrs, :email) || Map.get(attrs, "email") do
+        nil -> user
+        email ->
+          {:ok, user} = SmartTodo.Repo.update(SmartTodo.Accounts.User.email_changeset(user, %{email: email}))
+          user
+      end
 
     user
   end
 
   def user_fixture(attrs \\ %{}) do
-    user = unconfirmed_user_fixture(attrs)
-
-    token =
-      extract_user_token(fn url ->
-        Accounts.deliver_login_instructions(user, url)
-      end)
-
-    {:ok, {user, _expired_tokens}} =
-      Accounts.login_user_by_magic_link(token)
-
-    user
+    # For new flow, user is registered with password already.
+    unconfirmed_user_fixture(attrs)
   end
 
   def user_scope_fixture do
@@ -72,11 +73,7 @@ defmodule SmartTodo.AccountsFixtures do
     )
   end
 
-  def generate_user_magic_link_token(user) do
-    {encoded_token, user_token} = Accounts.UserToken.build_email_token(user, "login")
-    SmartTodo.Repo.insert!(user_token)
-    {encoded_token, user_token.token}
-  end
+  # Magic link helpers removed in username/password flow
 
   def offset_user_token(token, amount_to_add, unit) do
     dt = DateTime.add(DateTime.utc_now(:second), amount_to_add, unit)

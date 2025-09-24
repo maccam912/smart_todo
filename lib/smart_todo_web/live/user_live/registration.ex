@@ -24,12 +24,26 @@ defmodule SmartTodoWeb.UserLive.Registration do
 
         <.form for={@form} id="registration_form" phx-submit="save" phx-change="validate">
           <.input
-            field={@form[:email]}
-            type="email"
-            label="Email"
+            field={@form[:username]}
+            type="text"
+            label="Username"
             autocomplete="username"
             required
             phx-mounted={JS.focus()}
+          />
+          <.input
+            field={@form[:password]}
+            type="password"
+            label="Password"
+            autocomplete="new-password"
+            required
+          />
+          <.input
+            field={@form[:password_confirmation]}
+            type="password"
+            label="Confirm password"
+            autocomplete="new-password"
+            required
           />
 
           <.button phx-disable-with="Creating account..." class="btn btn-primary w-full">
@@ -48,7 +62,9 @@ defmodule SmartTodoWeb.UserLive.Registration do
   end
 
   def mount(_params, _session, socket) do
-    changeset = Accounts.change_user_email(%User{}, %{}, validate_unique: false)
+    changeset =
+      %User{}
+      |> User.registration_changeset(%{}, hash_password: false, validate_unique: false)
 
     {:ok, assign_form(socket, changeset), temporary_assigns: [form: nil]}
   end
@@ -57,18 +73,10 @@ defmodule SmartTodoWeb.UserLive.Registration do
   def handle_event("save", %{"user" => user_params}, socket) do
     case Accounts.register_user(user_params) do
       {:ok, user} ->
-        {:ok, _} =
-          Accounts.deliver_login_instructions(
-            user,
-            &url(~p"/users/log-in/#{&1}")
-          )
-
         {:noreply,
          socket
-         |> put_flash(
-           :info,
-           "An email was sent to #{user.email}, please access it to confirm your account."
-         )
+         |> put_flash(:info, "Account created. You can log in now.")
+         |> put_flash(:username, user.username)
          |> push_navigate(to: ~p"/users/log-in")}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -77,7 +85,10 @@ defmodule SmartTodoWeb.UserLive.Registration do
   end
 
   def handle_event("validate", %{"user" => user_params}, socket) do
-    changeset = Accounts.change_user_email(%User{}, user_params, validate_unique: false)
+    changeset =
+      %User{}
+      |> User.registration_changeset(user_params, hash_password: false, validate_unique: false)
+
     {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
   end
 
