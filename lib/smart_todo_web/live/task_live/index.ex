@@ -4,6 +4,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
   alias SmartTodo.Tasks
   alias SmartTodo.Tasks.Task
 
+  require Logger
+
   @impl true
   def mount(_params, _session, socket) do
     current_scope = socket.assigns.current_scope
@@ -18,7 +20,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
       socket
       |> assign(:page_title, "My Tasks")
       |> assign(:advanced_open?, false)
-      |> assign(:quick_form, to_form(%{"title" => ""}, as: "quick_task"))
+      |> assign(:quick_form, quick_form_with(""))
       |> assign(:selected_prereq_ids, [])
       |> assign(:form, form)
       |> assign(:editing_task_id, nil)
@@ -26,6 +28,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
       |> assign(:edit_selected_prereq_ids, [])
       |> assign(:show_completed?, false)
       |> assign(:prereq_options, prereq_options(tasks))
+      |> assign(:automation_status, :idle)
+      |> assign(:automation_job_ref, nil)
 
     {:ok, assign_task_lists(socket, tasks)}
   end
@@ -48,24 +52,45 @@ defmodule SmartTodoWeb.TaskLive.Index do
   end
 
   @impl true
-  def handle_event("quick_save", %{"quick_task" => %{"title" => title}}, socket) do
-    if String.trim(to_string(title)) == "" do
-      {:noreply, put_flash(socket, :error, "Title can't be blank")}
-    else
-      case Tasks.create_task(socket.assigns.current_scope, %{title: title}) do
-        {:ok, _task} ->
-          tasks = Tasks.list_tasks(socket.assigns.current_scope)
-
-          {:noreply,
-           socket
-           |> put_flash(:info, "Task created")
-           |> assign(:quick_form, to_form(%{"title" => ""}, as: "quick_task"))
-           |> assign(:prereq_options, prereq_options(tasks))
-           |> assign_task_lists(tasks, reset: true)}
-
-        {:error, %Ecto.Changeset{} = _cs} ->
-          {:noreply, put_flash(socket, :error, "Could not create task")}
+  def handle_event("quick_save", %{"quick_task" => %{"title" => raw_title}}, socket) do
+    normalized =
+      case raw_title do
+        nil -> ""
+        value when is_binary(value) -> value
+        value -> to_string(value)
       end
+
+    prompt = String.trim(normalized)
+
+    cond do
+      prompt == "" ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Title can't be blank")
+         |> assign(:quick_form, quick_form_with(normalized))}
+
+      socket.assigns.automation_status == :running ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Automation is already running. Please wait.")
+         |> assign(:quick_form, quick_form_with(normalized))}
+
+      true ->
+        case start_automation(socket, prompt) do
+          {:ok, ref} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Automation in progress...")
+             |> assign(:quick_form, quick_form_with(""))
+             |> assign(:automation_status, :running)
+             |> assign(:automation_job_ref, ref)}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, start_error_message(reason))
+             |> assign(:quick_form, quick_form_with(normalized))}
+        end
     end
   end
 
@@ -224,6 +249,207 @@ defmodule SmartTodoWeb.TaskLive.Index do
     end
   end
 
+  @impl true
+  def handle_info(
+        {:llm_session_result, ref, {:ok, result}},
+        %{assigns: %{automation_job_ref: ref}} = socket
+      ) do
+    socket =
+      socket
+      |> finish_automation()
+      |> put_flash(:info, automation_success_message(result))
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(
+        {:llm_session_result, ref, {:error, reason, ctx}},
+        %{assigns: %{automation_job_ref: ref}} = socket
+      ) do
+    Logger.error("LLM automation failed", reason: inspect(reason), context: inspect(ctx))
+
+    socket =
+      socket
+      |> finish_automation()
+      |> put_flash(:error, automation_error_message(reason))
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(
+        {:llm_session_result, ref, {:exception, exception, stack}},
+        %{assigns: %{automation_job_ref: ref}} = socket
+      ) do
+    Logger.error("LLM automation crashed\n" <> Exception.format(:error, exception, stack))
+
+    socket =
+      socket
+      |> finish_automation()
+      |> put_flash(:error, "Automation encountered an unexpected error.")
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(
+        {:llm_session_result, ref, {:exit, reason}},
+        %{assigns: %{automation_job_ref: ref}} = socket
+      ) do
+    Logger.error("LLM automation exited unexpectedly: #{inspect(reason)}")
+
+    socket =
+      socket
+      |> finish_automation()
+      |> put_flash(:error, "Automation exited unexpectedly.")
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(
+        {:llm_session_result, ref, {:caught, {kind, reason}}},
+        %{assigns: %{automation_job_ref: ref}} = socket
+      ) do
+    Logger.error("LLM automation caught #{inspect(kind)}: #{inspect(reason)}")
+
+    socket =
+      socket
+      |> finish_automation()
+      |> put_flash(:error, "Automation was interrupted.")
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:llm_session_result, _ref, _result}, socket) do
+    {:noreply, socket}
+  end
+
+  defp quick_form_with(value) do
+    to_form(%{"title" => value}, as: "quick_task")
+  end
+
+  defp start_automation(socket, prompt) do
+    caller = self()
+    ref = make_ref()
+    scope = socket.assigns.current_scope
+
+    start_result =
+      Elixir.Task.Supervisor.start_child(SmartTodo.Agent.TaskSupervisor, fn ->
+        result =
+          try do
+            invoke_llm_runner(scope, prompt)
+          rescue
+            exception ->
+              {:exception, exception, __STACKTRACE__}
+          catch
+            :exit, reason ->
+              {:exit, reason}
+
+            kind, reason ->
+              {:caught, {kind, reason}}
+          end
+
+        send(caller, {:llm_session_result, ref, result})
+      end)
+
+    case start_result do
+      {:ok, _pid} -> {:ok, ref}
+      {:ok, _pid, _info} -> {:ok, ref}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp start_error_message(reason) do
+    "Could not start automation: #{inspect(reason)}"
+  end
+
+  defp finish_automation(socket) do
+    socket
+    |> assign(:automation_status, :idle)
+    |> assign(:automation_job_ref, nil)
+    |> refresh_tasks()
+  end
+
+  defp refresh_tasks(socket) do
+    tasks = Tasks.list_tasks(socket.assigns.current_scope)
+
+    socket
+    |> assign(:prereq_options, prereq_options(tasks))
+    |> assign_task_lists(tasks, reset: true)
+  end
+
+  defp automation_success_message(%{executed: executed}) do
+    commands =
+      executed
+      |> Enum.map(&executed_name/1)
+      |> Enum.reject(&is_nil/1)
+
+    case commands do
+      [] -> "Automation completed with no changes."
+      _ -> "Automation completed (commands: #{Enum.join(commands, ", ")})."
+    end
+  end
+
+  defp automation_success_message(_), do: "Automation completed."
+
+  defp executed_name(entry) do
+    entry
+    |> Map.get(:name)
+    |> case do
+      nil -> Map.get(entry, "name")
+      name -> name
+    end
+    |> case do
+      nil -> nil
+      name when is_atom(name) -> Phoenix.Naming.humanize(name)
+      name when is_binary(name) -> Phoenix.Naming.humanize(name)
+      _ -> nil
+    end
+  end
+
+  defp automation_error_message({:unsupported_command, name}) do
+    "Automation failed: command #{name} is not available right now."
+  end
+
+  defp automation_error_message(:max_rounds) do
+    "Automation stopped after reaching the maximum round limit."
+  end
+
+  defp automation_error_message({:http_error, status, _body}) do
+    "Automation failed due to an HTTP #{status} response from Gemini."
+  end
+
+  defp automation_error_message(reason) when is_atom(reason) do
+    "Automation failed: #{Phoenix.Naming.humanize(reason)}."
+  end
+
+  defp automation_error_message(reason) do
+    "Automation failed: #{inspect(reason)}."
+  end
+
+  defp llm_runner do
+    Application.get_env(:smart_todo, :llm_runner, SmartTodo.Agent.LlmSession)
+  end
+
+  defp invoke_llm_runner(scope, prompt) do
+    case llm_runner() do
+      {module, extra} when is_atom(module) ->
+        apply(module, :run, [scope, prompt, extra])
+
+      module when is_atom(module) ->
+        apply(module, :run, [scope, prompt])
+
+      fun when is_function(fun, 2) ->
+        fun.(scope, prompt)
+
+      other ->
+        raise ArgumentError, "Invalid :llm_runner configuration: #{inspect(other)}"
+    end
+  end
+
   defp prereq_options(tasks) do
     Enum.map(tasks, fn t -> {t.title, t.id} end)
   end
@@ -296,12 +522,24 @@ defmodule SmartTodoWeb.TaskLive.Index do
                 value={@quick_form[:title].value}
                 placeholder="What would you like me to do?"
                 class="join-item input input-bordered w-full"
+                disabled={@automation_status == :running}
               />
-              <button class="join-item btn btn-primary" type="submit" aria-label="Quick add">
+              <button
+                class="join-item btn btn-primary"
+                type="submit"
+                aria-label="Quick add"
+                disabled={@automation_status == :running}
+              >
                 <.icon name="hero-paper-airplane" class="w-5 h-5" />
               </button>
             </div>
           </.form>
+          <p
+            :if={@automation_status == :running}
+            class="mt-3 flex items-center gap-2 text-sm text-base-content/70"
+          >
+            <.icon name="hero-arrow-path" class="w-4 h-4 animate-spin" /> Automation in progress...
+          </p>
         </div>
       </div>
 

@@ -8,6 +8,21 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
   alias SmartTodo.Accounts.Scope
   alias SmartTodo.Tasks
 
+  defmodule LlmRunnerStub do
+    def run(scope, prompt, test_pid) do
+      {:ok, _} = SmartTodo.Tasks.create_task(scope, %{title: prompt})
+
+      send(test_pid, {:llm_stub_called, prompt})
+
+      {:ok,
+       %{
+         machine: %{state: :completed},
+         executed: [%{name: :create_task, params: %{"title" => prompt}}],
+         conversation: []
+       }}
+    end
+  end
+
   test "redirects to login when unauthenticated", %{conn: conn} do
     conn = get(conn, ~p"/tasks")
     assert redirected_to(conn) == ~p"/users/log-in"
@@ -48,15 +63,22 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
              []
   end
 
-  test "create a task via quick form and list updates", %{conn: conn} do
+  test "quick form routes automation through the agent", %{conn: conn} do
     user = user_fixture()
     conn = log_in_user(conn, user)
+    Application.put_env(:smart_todo, :llm_runner, {__MODULE__.LlmRunnerStub, self()})
+    on_exit(fn -> Application.delete_env(:smart_todo, :llm_runner) end)
     {:ok, lv, _} = live(conn, ~p"/tasks")
 
     form = element(lv, "#quick-task-form")
     html = render_submit(form, %{"quick_task" => %{"title" => "Do thing"}})
-    assert html =~ "Task created"
-    assert html =~ "Do thing"
+    assert html =~ "Automation in progress..."
+
+    assert_receive {:llm_stub_called, "Do thing"}
+
+    html_after = render(lv)
+    assert html_after =~ "Automation completed"
+    assert html_after =~ "Do thing"
   end
 
   test "blocked task button is disabled until prerequisite is completed", %{conn: conn} do
