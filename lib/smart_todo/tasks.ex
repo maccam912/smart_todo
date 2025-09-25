@@ -18,9 +18,11 @@ defmodule SmartTodo.Tasks do
     - status: one of Task.status_values()
   Preloads prerequisites and dependents for UI.
   """
+  def list_tasks(current_scope, opts \\ [])
+
   def list_tasks(nil, _opts), do: []
 
-  def list_tasks(current_scope, opts \\ []) do
+  def list_tasks(current_scope, opts) do
     uid = user_id!(current_scope)
 
     base =
