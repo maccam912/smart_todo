@@ -20,6 +20,13 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
     assert html =~ "What would you like me to do?"
   end
 
+  test "shows empty state when user has no tasks", %{conn: conn} do
+    conn = log_in_user(conn, user_fixture())
+    {:ok, lv, _html} = live(conn, ~p"/tasks")
+
+    assert has_element?(lv, "p", "No tasks yet — add your first one above.")
+  end
+
   test "validate shows errors and preserves multi-select selection (advanced)", %{conn: conn} do
     user = user_fixture()
     conn = log_in_user(conn, user)

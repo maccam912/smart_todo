@@ -94,6 +94,10 @@ defmodule SmartTodo.TasksTest do
       ids = Tasks.list_tasks(Scope.for_user(u1)) |> Enum.map(& &1.id)
       assert ids == [t1.id]
     end
+
+    test "list_tasks/2 returns an empty list when scope is nil" do
+      assert Tasks.list_tasks(nil) == []
+    end
   end
 
   describe "dependencies and completion" do
