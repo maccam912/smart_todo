@@ -1,77 +1,101 @@
-############################
-# Builder image
-############################
-FROM alpine:3.18 AS build
+# Find eligible builder and runner images on Docker Hub. We use Ubuntu/Debian
+# instead of Alpine to avoid DNS resolution issues in production.
+#
+# https://hub.docker.com/r/hexpm/elixir/tags?name=ubuntu
+# https://hub.docker.com/_/ubuntu/tags
+#
+# This file is based on these images:
+#
+#   - https://hub.docker.com/r/hexpm/elixir/tags - for the build image
+#   - https://hub.docker.com/_/debian/tags?name=bookworm-20250113-slim - for the release image
+#   - https://pkgs.org/ - resource for finding needed packages
+#   - Ex: docker.io/hexpm/elixir:1.18.1-erlang-27.2-debian-bookworm-20250113-slim
+#
+ARG ELIXIR_VERSION=1.18.1
+ARG OTP_VERSION=27.2
+ARG DEBIAN_VERSION=bookworm-20250113-slim
 
-# Install Erlang/Elixir toolchain and build dependencies
-RUN apk add --no-cache \
-    build-base \
-    git \
-    nodejs \
-    npm \
-    python3 \
-    erlang \
-    erlang-dev \
-    erlang-parsetools \
-    erlang-crypto \
-    erlang-ssl \
-    erlang-sasl \
-    erlang-inets \
-    erlang-public-key \
-    elixir \
-    openssl-dev
+ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
+ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 
-ENV MIX_ENV=prod \
-    LANG=C.UTF-8
+FROM ${BUILDER_IMAGE} AS builder
 
+# install build dependencies
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends build-essential git \
+  && rm -rf /var/lib/apt/lists/*
+
+# prepare build dir
 WORKDIR /app
 
-# Install Hex and Rebar locally
+# install hex + rebar
 RUN mix local.hex --force \
-    && mix local.rebar --force
+  && mix local.rebar --force
 
-# Leverage Docker layer caching by fetching deps before copying source
+# set build ENV
+ENV MIX_ENV="prod"
+
+# install mix dependencies
 COPY mix.exs mix.lock ./
-COPY config config
+RUN mix deps.get --only $MIX_ENV
+RUN mkdir config
 
-RUN mix deps.get --only prod \
-    && mix deps.compile
+# copy compile-time config files before we compile dependencies
+# to ensure any relevant config change will trigger the dependencies
+# to be re-compiled.
+COPY config/config.exs config/${MIX_ENV}.exs config/
+RUN mix deps.compile
 
-# Copy app sources and assets
-COPY lib lib
+RUN mix assets.setup
+
 COPY priv priv
+
+COPY lib lib
+
+# Compile the release
+RUN mix compile
+
 COPY assets assets
 
-# Compile the application and assets, then produce a release
-RUN mix compile \
-    && mix assets.deploy \
-    && mix release
+# compile assets
+RUN mix assets.deploy
 
-############################
-# Minimal runtime image
-############################
-FROM alpine:3.18 AS runtime
+# Changes to config/runtime.exs don't require recompiling the code
+COPY config/runtime.exs config/
 
-ENV LANG=C.UTF-8 \
-    MIX_ENV=prod \
-    PHX_SERVER=true \
-    PORT=4000
+COPY rel rel
+RUN mix release
 
-WORKDIR /app
+# start a new build stage so that the final image will only contain
+# the compiled release and other runtime necessities
+FROM ${RUNNER_IMAGE} AS final
 
-# Install only the shared libraries required by the release
-RUN apk add --no-cache libstdc++ openssl ncurses-libs
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses5 locales ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
-# Create an unprivileged user to run the application
-RUN adduser --system --no-create-home --home /app --shell /bin/sh app
+# Set the locale
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
+  && locale-gen
 
-# Copy release from builder stage
-COPY --from=build /app/_build/prod/rel/smart_todo ./
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
 
-RUN chown -R app:app /app
-USER app
+WORKDIR "/app"
+RUN chown nobody /app
 
-EXPOSE 4000
+# set runner ENV
+ENV MIX_ENV="prod"
 
-ENTRYPOINT ["bin/smart_todo"]
-CMD ["start"]
+# Only copy the final release from the build stage
+COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/smart_todo ./
+
+USER nobody
+
+# If using an environment that doesn't automatically reap zombie processes, it is
+# advised to add an init process such as tini via `apt-get install`
+# above and adding an entrypoint. See https://github.com/krallin/tini for details
+# ENTRYPOINT ["/tini", "--"]
+
+CMD ["/app/bin/server"]
