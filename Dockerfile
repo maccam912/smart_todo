@@ -1,17 +1,30 @@
-# syntax=docker/dockerfile:1
-
 ############################
 # Builder image
 ############################
-FROM hexpm/elixir:1.15.7-erlang-26.1.2-alpine-3.18 AS build
+FROM alpine:3.18 AS build
+
+# Install Erlang/Elixir toolchain and build dependencies
+RUN apk add --no-cache \
+    build-base \
+    git \
+    nodejs \
+    npm \
+    python3 \
+    erlang \
+    erlang-dev \
+    erlang-parsetools \
+    erlang-crypto \
+    erlang-ssl \
+    erlang-sasl \
+    erlang-inets \
+    erlang-public-key \
+    elixir \
+    openssl-dev
 
 ENV MIX_ENV=prod \
     LANG=C.UTF-8
 
 WORKDIR /app
-
-# Install system dependencies required to compile the release and assets
-RUN apk add --no-cache build-base git nodejs npm python3
 
 # Install Hex and Rebar locally
 RUN mix local.hex --force \
