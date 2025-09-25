@@ -12,6 +12,7 @@ defmodule SmartTodo.Application do
       SmartTodo.Repo,
       {DNSCluster, query: Application.get_env(:smart_todo, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: SmartTodo.PubSub},
+      {Task.Supervisor, name: SmartTodo.Agent.TaskSupervisor},
       # Start a worker by calling: SmartTodo.Worker.start_link(arg)
       # {SmartTodo.Worker, arg},
       # Start to serve requests, typically the last entry
