@@ -141,5 +141,22 @@ defmodule SmartTodo.Agent.StateMachineTest do
       assert response.state == "completed"
       assert response.available_commands == []
     end
+
+    test "staged task creation commits without crashing", %{machine: machine, scope: scope} do
+      {:ok, machine, _} =
+        StateMachine.handle_command(machine, :create_task, %{"title" => "Newly created"})
+
+      {:ok, machine, response} = StateMachine.handle_command(machine, :complete_session, %{})
+
+      assert machine.state == :completed
+      assert response.message =~ "created"
+
+      titles =
+        scope
+        |> Tasks.list_tasks()
+        |> Enum.map(& &1.title)
+
+      assert Enum.member?(titles, "Newly created")
+    end
   end
 end

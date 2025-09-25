@@ -377,8 +377,14 @@ defmodule SmartTodo.Agent.StateMachine do
   defp apply_operation(%{type: :create_task, target: {:pending, ref}, attrs: attrs}, scope, acc) do
     case Tasks.create_task(scope, attrs) do
       {:ok, task} ->
-        summary = update_in(acc.summary.created, &[task | &1])
-        {:ok, %{acc | summary: summary, pending_map: Map.put(acc.pending_map, ref, task.id)}}
+        summary = Map.update!(acc.summary, :created, fn entries -> [task | entries] end)
+
+        {:ok,
+         %{
+           acc
+           | summary: summary,
+             pending_map: Map.put(acc.pending_map, ref, task.id)
+         }}
 
       {:error, %Changeset{} = changeset} ->
         {:error, {:create_task, ref, changeset}}
@@ -406,7 +412,7 @@ defmodule SmartTodo.Agent.StateMachine do
   defp dispatch_existing(:update_task, task_id, attrs, scope, acc) do
     with {:ok, task} <- fetch_task(scope, task_id),
          {:ok, updated} <- Tasks.update_task(scope, task, attrs) do
-      summary = update_in(acc.summary.updated, &[updated | &1])
+      summary = Map.update!(acc.summary, :updated, fn entries -> [updated | entries] end)
       {:ok, %{acc | summary: summary}}
     else
       {:error, {:missing_task, _} = reason} -> {:error, reason}
@@ -417,7 +423,7 @@ defmodule SmartTodo.Agent.StateMachine do
   defp dispatch_existing(:delete_task, task_id, _attrs, scope, acc) do
     with {:ok, task} <- fetch_task(scope, task_id),
          {:ok, deleted} <- Tasks.delete_task(scope, task) do
-      summary = update_in(acc.summary.deleted, &[deleted | &1])
+      summary = Map.update!(acc.summary, :deleted, fn entries -> [deleted | entries] end)
       {:ok, %{acc | summary: summary}}
     else
       {:error, {:missing_task, _} = reason} -> {:error, reason}
@@ -428,7 +434,7 @@ defmodule SmartTodo.Agent.StateMachine do
   defp dispatch_existing(:complete_task, task_id, _attrs, scope, acc) do
     with {:ok, task} <- fetch_task(scope, task_id),
          {:ok, completed} <- Tasks.complete_task(scope, task) do
-      summary = update_in(acc.summary.completed, &[completed | &1])
+      summary = Map.update!(acc.summary, :completed, fn entries -> [completed | entries] end)
       {:ok, %{acc | summary: summary}}
     else
       {:error, {:missing_task, _} = reason} -> {:error, reason}
