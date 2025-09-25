@@ -1,5 +1,19 @@
 This is a web application written using the Phoenix web framework.
 
+## Project structure overview
+
+- **Top level**: `assets/` (esbuild+Tailwind), `config/` (runtime + environment configs), `lib/` (OTP app), `priv/` (ecto migrations, mailer templates), `rel/` (release config), and `test/` (Elixir + LiveView tests). `_build/` and `deps/` are runtime artifacts.
+- **Application layer (`lib/smart_todo/`)**:
+  - `application.ex` starts telemetry, `SmartTodo.Repo`, `SmartTodoWeb.Endpoint`, and the `SmartTodo.Agent.TaskSupervisor` used by LLM sessions.
+  - `repo.ex` + `release.ex` cover database access and release helpers; `mailer.ex` wraps Swoosh.
+  - Contexts: `accounts/` (user schema, tokens, scope struct) exposed via `accounts.ex`; `tasks/` (task schema, dependency join schema) exposed via `tasks.ex` which always expects `current_scope` and handles list/create/update/delete/complete flows; `agent/` (LLM orchestration) with `state_machine.ex` for staged task commands and `llm_session.ex` for Gemini/Req integration.
+- **Web layer (`lib/smart_todo_web/`)**:
+  - Root definition module `smart_todo_web.ex` plus `endpoint.ex`, `router.ex`, `telemetry.ex`, and embeddings: controllers for user sessions (`controllers/user_session_controller.ex`) and root redirect (`controllers/root_redirect_controller.ex`).
+  - Components live under `components/` with `core_components.ex` (forms, inputs, icons) and `layouts.ex` + `layouts/root.html.heex`.
+  - LiveViews: user auth flows in `live/user_live/` (login, registration, settings) and the primary task dashboard in `live/task_live/index.ex`.
+- **Testing (`test/`)**: support helpers in `test/support/`, context tests (`test/smart_todo/accounts_test.exs`, `tasks_test.exs`), agent unit + integration tests under `test/smart_todo/agent/`, controller tests under `test/smart_todo_web/controllers/`, and LiveView tests under `test/smart_todo_web/live/`.
+- **Configuration**: `config/runtime.exs` pulls secrets from the environment; environment-specific configs live in `config/dev.exs`, `test.exs`, `prod.exs`. Update here when wiring new services (e.g., `Req` adapters, API keys).
+
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
