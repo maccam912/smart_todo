@@ -1,6 +1,7 @@
 defmodule SmartTodo.Agent.LlmSessionTest do
   use SmartTodo.DataCase, async: true
 
+  alias SmartTodo.Accounts
   alias SmartTodo.AccountsFixtures
   alias SmartTodo.Agent.LlmSession
   alias SmartTodo.Tasks
@@ -64,6 +65,37 @@ defmodule SmartTodo.Agent.LlmSessionTest do
              %{"name" => "create_task"} -> true
              _ -> false
            end)
+  end
+
+  test "includes user preferences in the system prompt" do
+    scope = AccountsFixtures.user_scope_fixture()
+
+    {:ok, preference} =
+      Accounts.upsert_user_preferences(scope.user, %{"prompt_preferences" => "Respond in Spanish."})
+
+    scope = %{scope | user: %{scope.user | preference: preference}}
+
+    Process.put(:llm_responses, [stub_response("complete_session", %{})])
+
+    request_fun = fn _url, payload, _opts ->
+      send(self(), {:system_instruction, payload["systemInstruction"]})
+
+      case Process.get(:llm_responses) do
+        [resp | rest] ->
+          Process.put(:llm_responses, rest)
+          resp
+
+        _ ->
+          flunk("no more responses queued")
+      end
+    end
+
+    {:ok, _result} =
+      LlmSession.run(scope, "Finish up", request_fun: request_fun, api_key: "test")
+
+    assert_received {:system_instruction, %{"parts" => [%{"text" => prompt_text}]}}
+    assert prompt_text =~ "User preferences:"
+    assert prompt_text =~ "Respond in Spanish."
   end
 
   test "stops with an error when the model requests an unavailable command" do
