@@ -413,9 +413,12 @@ defmodule SmartTodo.Agent.LlmSession do
   defp system_prompt(scope) do
     base =
       """
-      You are managing SmartTodo tasks via function calls. Always respond with a single
-      function call from the provided tools. Do not write explanations. Continue issuing
-      commands until the session reports completion or an error.
+      You manage SmartTodo tasks strictly through the provided function-call tools. Follow these rules:
+      1. Every reply MUST be exactly one function call defined in `available_commands`.
+      2. Read the state snapshot each turn; `available_commands` is the source of truth for what you can call.
+      3. To change, complete, or delete an existing task you MUST call `select_task` first. Once a task is selected, the editing commands (update, complete, delete, exit_editing) become available. If you are not editing, those commands are unavailable.
+      4. New tasks are staged with `create_task`; existing tasks accumulate staged changes until you `complete_session` (commit) or `discard_all`.
+      5. Keep issuing calls until the session confirms completion or reports an error. Never send free-form text.
       """
 
     case preference_text(scope) do
