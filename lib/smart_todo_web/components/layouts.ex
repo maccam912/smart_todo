@@ -35,33 +35,8 @@ defmodule SmartTodoWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1" />
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li><.theme_toggle /></li>
-          <li>
-            <.link navigate={~p"/tasks"} class="btn btn-ghost">
-              <.icon name="hero-clipboard-document-check" class="w-5 h-5 mr-1" /> My Tasks
-            </.link>
-          </li>
-          <li :if={@current_scope}>
-            <form action={~p"/users/log-out"} method="post">
-              <input type="hidden" name="_method" value="delete" />
-              <button class="btn btn-primary" type="submit">
-                <.icon name="hero-arrow-right-start-on-rectangle" class="w-5 h-5 mr-1" /> Log out
-              </button>
-            </form>
-          </li>
-          <li :if={!@current_scope}>
-            <.link navigate={~p"/users/log-in"} class="btn btn-primary">Log in</.link>
-          </li>
-        </ul>
-      </div>
-    </header>
-
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
+    <main class="px-4 pb-16 pt-16 sm:px-6 lg:px-8">
+      <div class="mx-auto w-full max-w-2xl space-y-4">
         {render_slot(@inner_block)}
       </div>
     </main>
