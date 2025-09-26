@@ -73,7 +73,10 @@ defmodule SmartTodo.Agent.LlmSession do
 
       payload =
         %{
-          "systemInstruction" => %{"role" => "system", "parts" => [%{"text" => system_prompt(ctx.scope)}]},
+          "systemInstruction" => %{
+            "role" => "system",
+            "parts" => [%{"text" => system_prompt(ctx.scope)}]
+          },
           "contents" => ctx.conversation,
           "tools" => [%{"functionDeclarations" => tools}],
           "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}
@@ -208,7 +211,7 @@ defmodule SmartTodo.Agent.LlmSession do
   defp normalize_args(args) when is_map(args), do: args
   defp normalize_args(_), do: %{}
 
-  @supported_commands ~w(select_task create_task update_task_fields delete_task complete_task exit_editing discard_all complete_session)a
+  @supported_commands ~w(select_task create_task update_task_fields delete_task complete_task exit_editing discard_all complete_session record_plan)a
 
   defp resolve_command(name, last_response) when is_binary(name) do
     case command_lookup(last_response)[name] do
@@ -355,6 +358,8 @@ defmodule SmartTodo.Agent.LlmSession do
       render_tasks(response.open_tasks),
       "Pending operations:",
       render_ops(response.pending_operations),
+      "Recorded plans:",
+      render_plan_notes(response.plan_notes),
       "Available commands:",
       render_commands(response.available_commands)
     ]
@@ -368,6 +373,7 @@ defmodule SmartTodo.Agent.LlmSession do
       error: response.error?,
       open_tasks: response.open_tasks,
       pending_operations: response.pending_operations,
+      plan_notes: response.plan_notes,
       available_commands: response.available_commands
     }
   end
@@ -397,6 +403,29 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp render_ops(_), do: "- none"
 
+  defp render_plan_notes(notes) when is_list(notes) do
+    notes
+    |> Enum.map(fn note ->
+      plan = Map.get(note, :plan) || Map.get(note, "plan")
+      steps = Map.get(note, :steps) || Map.get(note, "steps") || []
+
+      steps_text =
+        steps
+        |> Enum.map(&to_string/1)
+        |> Enum.join(" | ")
+
+      cond do
+        plan && plan != "" && steps_text != "" -> "- #{plan} (steps: #{steps_text})"
+        plan && plan != "" -> "- #{plan}"
+        steps_text != "" -> "- steps: #{steps_text}"
+        true -> "- (empty plan)"
+      end
+    end)
+    |> Enum.join("\n")
+  end
+
+  defp render_plan_notes(_), do: "- none"
+
   defp render_commands(commands) when is_list(commands) do
     commands
     |> Enum.map(fn command ->
@@ -418,7 +447,8 @@ defmodule SmartTodo.Agent.LlmSession do
       2. Read the state snapshot each turn; `available_commands` is the source of truth for what you can call.
       3. To change, complete, or delete an existing task you MUST call `select_task` first. Once a task is selected, the editing commands (update, complete, delete, exit_editing) become available. If you are not editing, those commands are unavailable.
       4. New tasks are staged with `create_task`; existing tasks accumulate staged changes until you `complete_session` (commit) or `discard_all`.
-      5. Keep issuing calls until the session confirms completion or reports an error. Never send free-form text.
+      5. Whenever solving the request requires more than one command, call `record_plan` first to capture the steps you intend to take.
+      6. `complete_session` MUST be the final command you ever issue in a session; after calling it you may not send any further commands.
       """
 
     case preference_text(scope) do

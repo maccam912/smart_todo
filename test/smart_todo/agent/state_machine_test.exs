@@ -158,5 +158,23 @@ defmodule SmartTodo.Agent.StateMachineTest do
 
       assert Enum.member?(titles, "Newly created")
     end
+
+    test "record_plan stores planning notes for later reference", %{machine: machine} do
+      params = %{
+        "plan" => "Update an existing task",
+        "steps" => [
+          "record plan",
+          "select task",
+          "stage updates",
+          "complete_session"
+        ]
+      }
+
+      {:ok, machine, response} = StateMachine.handle_command(machine, :record_plan, params)
+
+      assert [%{plan: "Update an existing task", steps: steps}] = response.plan_notes
+      assert Enum.count(steps) == 4
+      assert [%{plan: "Update an existing task", steps: ^steps}] = machine.plan_notes
+    end
   end
 end
