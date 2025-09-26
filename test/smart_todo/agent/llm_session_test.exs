@@ -67,6 +67,49 @@ defmodule SmartTodo.Agent.LlmSessionTest do
            end)
   end
 
+  test "uses Helicone proxy headers when configured" do
+    scope = AccountsFixtures.user_scope_fixture()
+
+    Process.put(:llm_responses, [stub_response("complete_session", %{})])
+
+    original = System.get_env("HELICONE_API_KEY")
+    System.put_env("HELICONE_API_KEY", "helicone-test")
+
+    on_exit(fn ->
+      if original do
+        System.put_env("HELICONE_API_KEY", original)
+      else
+        System.delete_env("HELICONE_API_KEY")
+      end
+    end)
+
+    request_fun = fn url, _payload, opts ->
+      assert String.starts_with?(url, "https://gateway.helicone.ai/v1beta/models/")
+
+      headers = Keyword.fetch!(opts, :headers)
+
+      assert {"Helicone-Auth", "Bearer helicone-test"} in headers
+      assert {"Helicone-Target-URL", "https://generativelanguage.googleapis.com"} in headers
+      assert {"Helicone-Property-App", "smart_todo"} in headers
+      assert {"Helicone-Property-UserId", Integer.to_string(scope.user.id)} in headers
+
+      case Process.get(:llm_responses) do
+        [resp | rest] ->
+          Process.put(:llm_responses, rest)
+          resp
+
+        _ ->
+          flunk("no more responses queued")
+      end
+    end
+
+    assert {:ok, _result} =
+             LlmSession.run(scope, "route via helicone",
+               request_fun: request_fun,
+               api_key: "test"
+             )
+  end
+
   test "includes user preferences in the system prompt" do
     scope = AccountsFixtures.user_scope_fixture()
 

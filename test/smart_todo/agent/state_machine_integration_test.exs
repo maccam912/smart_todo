@@ -1,4 +1,6 @@
-if System.get_env("GEMINI_API_KEY") do
+api_key_env = System.get_env("GEMINI_API_KEY") || System.get_env("GOOGLE_API_KEY")
+
+if api_key_env do
   defmodule SmartTodo.Agent.StateMachineIntegrationTest do
     use SmartTodo.DataCase, async: false
 
@@ -13,8 +15,9 @@ if System.get_env("GEMINI_API_KEY") do
     """
 
     setup do
-      {:ok,
-       scope: AccountsFixtures.user_scope_fixture(), api_key: System.fetch_env!("GEMINI_API_KEY")}
+      api_key = System.get_env("GEMINI_API_KEY") || System.get_env("GOOGLE_API_KEY")
+
+      {:ok, scope: AccountsFixtures.user_scope_fixture(), api_key: api_key}
     end
 
     test "Gemini session completes", %{scope: scope, api_key: api_key} do
@@ -34,8 +37,8 @@ else
 
     @moduletag :integration
 
-    @tag skip: "GEMINI_API_KEY not set"
-    test "skipped because GEMINI_API_KEY is missing" do
+    @tag skip: "GEMINI_API_KEY or GOOGLE_API_KEY not set"
+    test "skipped because Gemini API credentials are missing" do
       assert true
     end
   end

@@ -15,6 +15,9 @@ defmodule SmartTodo.Agent.LlmSession do
   @max_rounds 20
   @default_model "gemini-2.5-flash"
   @base_url "https://generativelanguage.googleapis.com/v1beta"
+  @helicone_base_url "https://gateway.helicone.ai/v1beta"
+  @helicone_target_url "https://generativelanguage.googleapis.com"
+  @helicone_default_properties %{"App" => "smart_todo"}
   @default_receive_timeout :timer.minutes(10)
 
   @spec start(Scope.t(), String.t(), keyword()) :: {:ok, pid()}
@@ -85,7 +88,9 @@ defmodule SmartTodo.Agent.LlmSession do
           "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}
         }
 
-      with {:ok, call, body} <- request_command(payload, ctx.last_response, opts),
+      request_opts = maybe_put_scope_helicone_properties(opts, ctx.scope)
+
+      with {:ok, call, body} <- request_command(payload, ctx.last_response, request_opts),
            {:ok, after_call} <- apply_command(ctx, call, body) do
         conversation_loop(after_call, opts, round + 1)
       else
@@ -169,14 +174,17 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp call_model(payload, opts) do
-    url = model_endpoint(Keyword.get(opts, :model, @default_model), opts)
+    helicone = helicone_settings(opts)
+    url = model_endpoint(Keyword.get(opts, :model, @default_model), opts, helicone)
     request_fun = Keyword.get(opts, :request_fun, &default_request/3)
+    request_opts = prepare_request_opts(opts, helicone)
 
-    request_fun.(url, payload, opts)
+    request_fun.(url, payload, request_opts)
   end
 
   defp default_request(url, payload, opts) do
     api_key = Keyword.get(opts, :api_key, api_key!())
+    headers = normalize_headers(Keyword.get(opts, :headers, []))
 
     request_options =
       [
@@ -185,6 +193,7 @@ defmodule SmartTodo.Agent.LlmSession do
         json: payload,
         receive_timeout: Keyword.get(opts, :receive_timeout, default_receive_timeout())
       ]
+      |> maybe_put_headers(headers)
 
     case Req.post(request_options) do
       {:ok, %Req.Response{status: 200, body: body}} -> {:ok, body}
@@ -205,16 +214,137 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp api_key! do
-    case System.get_env("GEMINI_API_KEY") do
-      nil -> raise "Environment variable GEMINI_API_KEY is required"
+    case present(System.get_env("GEMINI_API_KEY")) || present(System.get_env("GOOGLE_API_KEY")) do
+      nil -> raise "Environment variable GEMINI_API_KEY or GOOGLE_API_KEY is required"
       key -> key
     end
   end
 
-  defp model_endpoint(model, opts) do
-    base = Keyword.get(opts, :base_url, @base_url)
+  defp model_endpoint(model, opts, helicone) do
+    base =
+      case Keyword.get(opts, :base_url) do
+        nil ->
+          case helicone do
+            %{base_url: base_url} -> base_url
+            _ -> @base_url
+          end
+
+        base_url ->
+          base_url
+      end
+
     "#{base}/models/#{model}:generateContent"
   end
+
+  defp prepare_request_opts(opts, helicone) do
+    opts
+    |> Keyword.put_new_lazy(:receive_timeout, &default_receive_timeout/0)
+    |> maybe_attach_helicone_headers(helicone)
+  end
+
+  defp maybe_put_scope_helicone_properties(opts, %Scope{user: %{id: id}}) when not is_nil(id) do
+    properties =
+      opts
+      |> Keyword.get(:helicone_properties, %{})
+      |> normalize_properties()
+      |> Map.put_new("UserId", id)
+
+    Keyword.put(opts, :helicone_properties, properties)
+  end
+
+  defp maybe_put_scope_helicone_properties(opts, _), do: opts
+
+  defp maybe_attach_helicone_headers(opts, nil), do: opts
+
+  defp maybe_attach_helicone_headers(opts, %{api_key: key, target_url: target, properties: props}) do
+    existing_headers =
+      opts
+      |> Keyword.get(:headers, [])
+      |> normalize_headers()
+      |> Enum.reject(&helicone_header?/1)
+
+    headers = helicone_header_list(key, target, props) ++ existing_headers
+
+    opts
+    |> Keyword.put(:headers, headers)
+    |> Keyword.put(:helicone_api_key, key)
+    |> Keyword.put(:helicone_target_url, target)
+    |> Keyword.put(:helicone_properties, props)
+  end
+
+  defp helicone_settings(opts) do
+    key =
+      opts
+      |> Keyword.get(:helicone_api_key)
+      |> present() ||
+        present(System.get_env("HELICONE_API_KEY"))
+
+    case key do
+      nil ->
+        nil
+
+      key ->
+        base_url =
+          opts
+          |> Keyword.get(:helicone_base_url)
+          |> present() ||
+            present(System.get_env("HELICONE_BASE_URL")) ||
+            @helicone_base_url
+
+        target_url =
+          opts
+          |> Keyword.get(:helicone_target_url)
+          |> present() ||
+            present(System.get_env("HELICONE_TARGET_URL")) ||
+            @helicone_target_url
+
+        properties =
+          @helicone_default_properties
+          |> Map.merge(normalize_properties(Keyword.get(opts, :helicone_properties, %{})))
+
+        %{api_key: key, base_url: base_url, target_url: target_url, properties: properties}
+    end
+  end
+
+  defp helicone_header_list(key, target, props) do
+    base_headers = [
+      {"Helicone-Auth", "Bearer #{key}"},
+      {"Helicone-Target-URL", target}
+    ]
+
+    property_headers =
+      props
+      |> Enum.map(fn {name, value} ->
+        {"Helicone-Property-#{name}", to_string(value)}
+      end)
+
+    base_headers ++ property_headers
+  end
+
+  defp helicone_header?({"Helicone-" <> _, _}), do: true
+  defp helicone_header?(_), do: false
+
+  defp normalize_headers(headers) do
+    headers
+    |> List.wrap()
+    |> Enum.flat_map(fn entry ->
+      cond do
+        is_map(entry) -> Map.to_list(entry)
+        is_list(entry) -> entry
+        true -> [entry]
+      end
+    end)
+  end
+
+  defp normalize_properties(%{} = props), do: props
+  defp normalize_properties(props) when is_list(props), do: Enum.into(props, %{})
+  defp normalize_properties(_), do: %{}
+
+  defp present(value) when value in [nil, ""], do: nil
+  defp present(value), do: value
+
+  defp maybe_put_headers(opts, []), do: Keyword.delete(opts, :headers)
+  defp maybe_put_headers(opts, headers), do: Keyword.put(opts, :headers, headers)
 
   defp extract_function_call(%{"candidates" => [candidate | _]}) do
     parts = get_in(candidate, ["content", "parts"]) || []
