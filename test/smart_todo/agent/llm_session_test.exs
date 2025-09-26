@@ -71,7 +71,9 @@ defmodule SmartTodo.Agent.LlmSessionTest do
     scope = AccountsFixtures.user_scope_fixture()
 
     {:ok, preference} =
-      Accounts.upsert_user_preferences(scope.user, %{"prompt_preferences" => "Respond in Spanish."})
+      Accounts.upsert_user_preferences(scope.user, %{
+        "prompt_preferences" => "Respond in Spanish."
+      })
 
     scope = %{scope | user: %{scope.user | preference: preference}}
 

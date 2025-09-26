@@ -73,7 +73,10 @@ defmodule SmartTodo.Agent.LlmSession do
 
       payload =
         %{
-          "systemInstruction" => %{"role" => "system", "parts" => [%{"text" => system_prompt(ctx.scope)}]},
+          "systemInstruction" => %{
+            "role" => "system",
+            "parts" => [%{"text" => system_prompt(ctx.scope)}]
+          },
           "contents" => ctx.conversation,
           "tools" => [%{"functionDeclarations" => tools}],
           "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}

@@ -7,6 +7,8 @@
 # General application configuration
 import Config
 
+config :mime, :types, %{"application/manifest+json" => ["webmanifest"]}
+
 config :smart_todo, :scopes,
   user: [
     default: true,
