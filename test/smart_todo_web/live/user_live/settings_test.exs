@@ -4,6 +4,8 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
   import Phoenix.LiveViewTest
   import SmartTodo.AccountsFixtures
 
+  alias SmartTodo.Accounts
+
   describe "Settings page" do
     test "renders settings page", %{conn: conn} do
       {:ok, _lv, html} =
@@ -13,6 +15,8 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
 
       refute html =~ "Change Email"
       assert html =~ "Save Password"
+      assert html =~ "Assistant Preferences"
+      assert html =~ "Save Preferences"
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
@@ -106,6 +110,43 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
       assert result =~ "Save Password"
       assert result =~ "should be at least 12 character(s)"
       assert result =~ "does not match password"
+    end
+  end
+
+  describe "assistant preferences form" do
+    setup %{conn: conn} do
+      user = user_fixture()
+      %{conn: log_in_user(conn, user), user: user}
+    end
+
+    test "updates the stored preferences", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      instructions = "Keep answers short and focus on action items."
+
+      lv
+      |> form("#preferences_form", %{
+        "user_preference" => %{"prompt_preferences" => instructions}
+      })
+      |> render_submit()
+
+      assert Accounts.get_user_preferences(user).prompt_preferences == instructions
+      assert render(lv) =~ "Preferences updated successfully."
+    end
+
+    test "renders errors when the text is too long", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      result =
+        lv
+        |> element("#preferences_form")
+        |> render_change(%{
+          "user_preference" => %{
+            "prompt_preferences" => String.duplicate("a", 2100)
+          }
+        })
+
+      assert result =~ "should be at most 2000 character(s)"
     end
   end
 

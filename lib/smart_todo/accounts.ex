@@ -6,7 +6,7 @@ defmodule SmartTodo.Accounts do
   import Ecto.Query, warn: false
   alias SmartTodo.Repo
 
-  alias SmartTodo.Accounts.{User, UserToken}
+  alias SmartTodo.Accounts.{User, UserPreference, UserToken}
 
   ## Database getters
 
@@ -16,7 +16,9 @@ defmodule SmartTodo.Accounts do
   Gets a user by username.
   """
   def get_user_by_username(username) when is_binary(username) do
-    Repo.get_by(User, username: username)
+    User
+    |> Repo.get_by(username: username)
+    |> preload_user_preference()
   end
 
   @doc """
@@ -24,7 +26,11 @@ defmodule SmartTodo.Accounts do
   """
   def get_user_by_username_and_password(username, password)
       when is_binary(username) and is_binary(password) do
-    user = Repo.get_by(User, username: username)
+    user =
+      User
+      |> Repo.get_by(username: username)
+      |> preload_user_preference()
+
     if User.valid_password?(user, password), do: user
   end
 
@@ -42,7 +48,11 @@ defmodule SmartTodo.Accounts do
       ** (Ecto.NoResultsError)
 
   """
-  def get_user!(id), do: Repo.get!(User, id)
+  def get_user!(id) do
+    User
+    |> Repo.get!(id)
+    |> preload_user_preference()
+  end
 
   ## User registration
 
@@ -126,7 +136,10 @@ defmodule SmartTodo.Accounts do
   """
   def get_user_by_session_token(token) do
     {:ok, query} = UserToken.verify_session_token_query(token)
-    Repo.one(query)
+    case Repo.one(query) do
+      nil -> nil
+      {user, inserted_at} -> {preload_user_preference(user), inserted_at}
+    end
   end
 
   # Email notifications removed
@@ -151,5 +164,56 @@ defmodule SmartTodo.Accounts do
         {:ok, {user, tokens_to_expire}}
       end
     end)
+  end
+
+  ## User preferences
+
+  @doc """
+  Returns a changeset for updating the user's LLM preferences.
+  """
+  def change_user_preferences(%User{} = user, attrs \\ %{}) do
+    user
+    |> preference_struct()
+    |> UserPreference.changeset(attrs)
+  end
+
+  @doc """
+  Creates or updates the user's LLM preferences.
+  """
+  def upsert_user_preferences(%User{} = user, attrs) when is_map(attrs) do
+    changeset = change_user_preferences(user, attrs)
+
+    if changeset.data.id do
+      Repo.update(changeset)
+    else
+      Repo.insert(changeset)
+    end
+  end
+
+  @doc """
+  Fetches the persisted user preferences if they exist.
+  """
+  def get_user_preferences(%User{} = user) do
+    case preload_user_preference(user).preference do
+      %UserPreference{} = preference -> preference
+      _ -> nil
+    end
+  end
+
+  defp preload_user_preference(nil), do: nil
+
+  defp preload_user_preference(%User{} = user) do
+    Repo.preload(user, :preference)
+  end
+
+  defp preference_struct(%User{preference: %UserPreference{} = pref}), do: pref
+
+  defp preference_struct(%User{} = user) do
+    preloaded = preload_user_preference(user)
+
+    case preloaded.preference do
+      %UserPreference{} = preference -> preference
+      _ -> Ecto.build_assoc(preloaded, :preference)
+    end
   end
 end

@@ -51,6 +51,35 @@ defmodule SmartTodoWeb.UserLive.Settings do
           Save Password
         </.button>
       </.form>
+
+      <div class="divider" />
+
+      <div class="text-center">
+        <.header>
+          Assistant Preferences
+          <:subtitle>
+            Provide optional guidance that will be sent with every automation prompt.
+          </:subtitle>
+        </.header>
+      </div>
+
+      <.form
+        for={@preferences_form}
+        id="preferences_form"
+        phx-change="validate_preferences"
+        phx-submit="save_preferences"
+      >
+        <.input
+          field={@preferences_form[:prompt_preferences]}
+          type="textarea"
+          label="LLM instructions"
+          placeholder="Share any preferences the assistant should always follow."
+        />
+
+        <.button variant="primary" phx-disable-with="Saving...">
+          Save Preferences
+        </.button>
+      </.form>
     </Layouts.app>
     """
   end
@@ -64,6 +93,7 @@ defmodule SmartTodoWeb.UserLive.Settings do
       socket
       |> assign(:current_username, user.username)
       |> assign(:password_form, to_form(password_changeset))
+      |> assign(:preferences_form, to_form(Accounts.change_user_preferences(user)))
       |> assign(:trigger_submit, false)
 
     {:ok, socket}
@@ -94,6 +124,40 @@ defmodule SmartTodoWeb.UserLive.Settings do
 
       changeset ->
         {:noreply, assign(socket, password_form: to_form(changeset, action: :insert))}
+    end
+  end
+
+  def handle_event("validate_preferences", %{"user_preference" => pref_params}, socket) do
+    preferences_form =
+      socket.assigns.current_scope.user
+      |> Accounts.change_user_preferences(pref_params)
+      |> Map.put(:action, :validate)
+      |> to_form()
+
+    {:noreply, assign(socket, preferences_form: preferences_form)}
+  end
+
+  def handle_event("save_preferences", %{"user_preference" => pref_params}, socket) do
+    user = socket.assigns.current_scope.user
+
+    case Accounts.upsert_user_preferences(user, pref_params) do
+      {:ok, preference} ->
+        updated_user = %{user | preference: preference}
+        updated_scope = %{socket.assigns.current_scope | user: updated_user}
+
+        preferences_form =
+          updated_user
+          |> Accounts.change_user_preferences()
+          |> to_form()
+
+        {:noreply,
+         socket
+         |> assign(:current_scope, updated_scope)
+         |> assign(:preferences_form, preferences_form)
+         |> put_flash(:info, "Preferences updated successfully.")}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, preferences_form: to_form(changeset, action: :insert))}
     end
   end
 end

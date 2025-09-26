@@ -73,7 +73,7 @@ defmodule SmartTodo.Agent.LlmSession do
 
       payload =
         %{
-          "systemInstruction" => %{"role" => "system", "parts" => [%{"text" => system_prompt()}]},
+          "systemInstruction" => %{"role" => "system", "parts" => [%{"text" => system_prompt(ctx.scope)}]},
           "contents" => ctx.conversation,
           "tools" => [%{"functionDeclarations" => tools}],
           "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}
@@ -410,13 +410,25 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp render_commands(_), do: "- none"
 
-  defp system_prompt do
-    """
-    You are managing SmartTodo tasks via function calls. Always respond with a single
-    function call from the provided tools. Do not write explanations. Continue issuing
-    commands until the session reports completion or an error.
-    """
+  defp system_prompt(scope) do
+    base =
+      """
+      You are managing SmartTodo tasks via function calls. Always respond with a single
+      function call from the provided tools. Do not write explanations. Continue issuing
+      commands until the session reports completion or an error.
+      """
+
+    case preference_text(scope) do
+      nil -> base
+      preferences -> base <> "\n\nUser preferences:\n" <> preferences
+    end
   end
+
+  defp preference_text(%Scope{user: %{preference: %{prompt_preferences: pref}}})
+       when is_binary(pref) and pref != "",
+       do: pref
+
+  defp preference_text(_), do: nil
 
   defp error_context(last_response, conversation, _body) do
     %{
