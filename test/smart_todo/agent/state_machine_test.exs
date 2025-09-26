@@ -176,5 +176,19 @@ defmodule SmartTodo.Agent.StateMachineTest do
       assert Enum.count(steps) == 4
       assert [%{plan: "Update an existing task", steps: ^steps}] = machine.plan_notes
     end
+
+    test "record_plan tolerates string steps by splitting into list", %{machine: machine} do
+      params = %{
+        "plan" => "Upgrade clusters",
+        "steps" => "Create Cortex task; Create USRM task; Complete session"
+      }
+
+      {:ok, machine, response} = StateMachine.handle_command(machine, :record_plan, params)
+
+      assert [%{plan: "Upgrade clusters", steps: steps}] = response.plan_notes
+      assert length(steps) == 3
+      assert Enum.all?(steps, &is_binary/1)
+      assert [%{plan: "Upgrade clusters", steps: ^steps}] = machine.plan_notes
+    end
   end
 end

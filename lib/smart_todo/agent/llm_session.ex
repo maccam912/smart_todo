@@ -12,6 +12,11 @@ defmodule SmartTodo.Agent.LlmSession do
   alias SmartTodo.Agent.StateMachine
   alias Req
 
+  @status_options ~w(todo in_progress done)a
+  @urgency_options ~w(low normal high critical)a
+  @recurrence_options ~w(none daily weekly monthly yearly)a
+
+  @max_errors 3
   @max_rounds 20
   @default_model "gemini-2.5-flash"
   @base_url "https://generativelanguage.googleapis.com/v1beta"
@@ -53,7 +58,8 @@ defmodule SmartTodo.Agent.LlmSession do
        conversation: conversation,
        executed: [],
        scope: scope,
-       user_text: user_text
+       user_text: user_text,
+       errors: 0
      }}
   end
 
@@ -71,31 +77,51 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp conversation_loop(ctx, opts, round) do
     max_rounds = Keyword.get(opts, :max_rounds, @max_rounds)
+    max_errors = Keyword.get(opts, :max_errors, @max_errors)
 
-    if round >= max_rounds do
-      {:error, :max_rounds, failure_context(ctx)}
-    else
-      tools = tools_from_response(ctx.last_response)
+    cond do
+      round >= max_rounds ->
+        {:error, :max_rounds, failure_context(ctx)}
 
-      payload =
-        %{
-          "systemInstruction" => %{
-            "role" => "system",
-            "parts" => [%{"text" => system_prompt(ctx.scope)}]
-          },
-          "contents" => ctx.conversation,
-          "tools" => [%{"functionDeclarations" => tools}],
-          "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}
-        }
+      Map.get(ctx, :errors, 0) >= max_errors ->
+        {:error, :max_errors, failure_context(ctx)}
 
-      request_opts = maybe_put_scope_helicone_properties(opts, ctx.scope)
+      true ->
+        tools = tools_from_response(ctx.last_response)
 
-      with {:ok, call, body} <- request_command(payload, ctx.last_response, request_opts),
-           {:ok, after_call} <- apply_command(ctx, call, body) do
-        conversation_loop(after_call, opts, round + 1)
-      else
-        {:error, reason, extra} -> {:error, reason, failure_context(ctx, extra)}
-      end
+        payload =
+          %{
+            "systemInstruction" => %{
+              "role" => "system",
+              "parts" => [%{"text" => system_prompt(ctx.scope)}]
+            },
+            "contents" => ctx.conversation,
+            "tools" => [%{"functionDeclarations" => tools}],
+            "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}
+          }
+
+        request_opts = maybe_put_scope_helicone_properties(opts, ctx.scope)
+
+        case request_command(payload, ctx.last_response, request_opts) do
+          {:ok, call, body} ->
+            case apply_command(ctx, call, body) do
+              {:ok, after_call} ->
+                conversation_loop(after_call, opts, round + 1)
+
+              {:retry, retry_ctx} ->
+                if Map.get(retry_ctx, :errors, 0) >= max_errors do
+                  {:error, :max_errors, failure_context(retry_ctx)}
+                else
+                  conversation_loop(retry_ctx, opts, round + 1)
+                end
+
+              other ->
+                {:error, {:unexpected_command_result, other}, failure_context(ctx)}
+            end
+
+          {:error, reason, extra} ->
+            {:error, reason, failure_context(ctx, extra)}
+        end
     end
   end
 
@@ -134,24 +160,25 @@ defmodule SmartTodo.Agent.LlmSession do
         {:ok, final_ctx}
 
       {:error, machine, response} ->
+        conversation = add_error_turn(ctx.conversation, name, params, response)
+
         updated =
           ctx
           |> Map.put(:machine, machine)
           |> Map.put(:last_response, response)
-          |> Map.put(:conversation, add_error_turn(ctx.conversation, command, params, response))
+          |> Map.put(:conversation, conversation)
+          |> increment_error_count()
 
-        {:error, {:state_machine, command},
-         %{
-           machine: machine,
-           last_response: response,
-           executed: Enum.reverse(ctx.executed),
-           conversation: updated.conversation
-         }}
+        {:retry, updated}
     end
   end
 
   defp command_entry(command, params) do
     %{name: command, params: params}
+  end
+
+  defp increment_error_count(ctx) do
+    Map.update(ctx, :errors, 1, &(&1 + 1))
   end
 
   defp failure_context(ctx), do: failure_context(ctx, %{})
@@ -167,7 +194,8 @@ defmodule SmartTodo.Agent.LlmSession do
       machine: ctx.machine,
       last_response: ctx.last_response,
       executed: Enum.reverse(ctx.executed),
-      conversation: ctx.conversation
+      conversation: ctx.conversation,
+      errors: Map.get(ctx, :errors, 0)
     }
 
     Map.merge(base, extra)
@@ -405,17 +433,22 @@ defmodule SmartTodo.Agent.LlmSession do
   defp command_params(%{"params" => params}), do: params
 
   defp tool_parameters(command) do
+    name = command_name(command)
     params = command_params(command)
 
     properties =
       Enum.into(params, %{}, fn {key, desc} ->
-        {key, %{"type" => "string", "description" => desc}}
+        key_string = to_string(key)
+
+        schema =
+          name
+          |> parameter_schema(key_string)
+          |> Map.put("description", desc)
+
+        {key, schema}
       end)
 
-    required =
-      params
-      |> Enum.filter(fn {_key, desc} -> String.contains?(String.downcase(desc), "required") end)
-      |> Enum.map(fn {key, _} -> key end)
+    required = required_parameters(params)
 
     base = %{"type" => "object", "properties" => properties}
 
@@ -424,6 +457,47 @@ defmodule SmartTodo.Agent.LlmSession do
     else
       Map.put(base, "required", required)
     end
+  end
+
+  defp required_parameters(params) do
+    params
+    |> Enum.filter(fn {_key, desc} -> String.contains?(String.downcase(desc), "required") end)
+    |> Enum.map(fn {key, _} -> key end)
+  end
+
+  defp parameter_schema("record_plan", "steps") do
+    %{"type" => "array", "items" => %{"type" => "string"}}
+  end
+
+  defp parameter_schema(_command, "task_id"), do: %{"type" => "integer"}
+  defp parameter_schema(_command, "pending_ref"), do: %{"type" => "integer"}
+  defp parameter_schema(_command, "assignee_id"), do: %{"type" => "integer"}
+
+  defp parameter_schema(_command, "prerequisite_ids") do
+    %{"type" => "array", "items" => %{"type" => "integer"}}
+  end
+
+  defp parameter_schema(command_name, "status")
+       when command_name in ["create_task", "update_task_fields"] do
+    %{"type" => "string", "enum" => Enum.map(@status_options, &Atom.to_string/1)}
+  end
+
+  defp parameter_schema(command_name, "urgency")
+       when command_name in ["create_task", "update_task_fields"] do
+    %{"type" => "string", "enum" => Enum.map(@urgency_options, &Atom.to_string/1)}
+  end
+
+  defp parameter_schema(command_name, "recurrence")
+       when command_name in ["create_task", "update_task_fields"] do
+    %{"type" => "string", "enum" => Enum.map(@recurrence_options, &Atom.to_string/1)}
+  end
+
+  defp parameter_schema(_command, "due_date") do
+    %{"type" => "string", "format" => "date"}
+  end
+
+  defp parameter_schema(_command, _param) do
+    %{"type" => "string"}
   end
 
   defp model_turn(name, params) do
@@ -464,31 +538,50 @@ defmodule SmartTodo.Agent.LlmSession do
     }
   end
 
-  defp add_error_turn(conversation, command, params, response) do
-    tool_message =
-      %{
-        "role" => "tool",
-        "parts" => [
-          %{
-            "functionResponse" => %{
-              "name" => Atom.to_string(command),
-              "response" => %{
-                "status" => "error",
-                "state" => render_state_snapshot(response),
-                "echo" => params
-              }
+  defp add_error_turn(conversation, name, params, response) do
+    conversation ++
+      [
+        model_turn(name, params),
+        tool_error_turn(name, params, response),
+        user_turn(nil, response, :error)
+      ]
+  end
+
+  defp tool_error_turn(name, params, response) do
+    %{
+      "role" => "tool",
+      "parts" => [
+        %{
+          "functionResponse" => %{
+            "name" => name,
+            "response" => %{
+              "status" => "error",
+              "state" => render_state_snapshot(response),
+              "echo" => params
             }
           }
-        ]
-      }
-
-    conversation ++ [tool_message]
+        }
+      ]
+    }
   end
 
   defp user_turn(user_text, response, :initial) do
     %{
       "role" => "user",
       "parts" => [%{"text" => "User request: #{user_text}\n" <> render_state_text(response)}]
+    }
+  end
+
+  defp user_turn(_user_text, response, :error) do
+    %{
+      "role" => "user",
+      "parts" => [
+        %{
+          "text" =>
+            "The previous command failed. Review the error details and try another command.\n" <>
+              render_state_text(response)
+        }
+      ]
     }
   end
 

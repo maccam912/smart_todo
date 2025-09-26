@@ -67,6 +67,97 @@ defmodule SmartTodo.Agent.LlmSessionTest do
            end)
   end
 
+  test "record_plan tool advertises steps as an array" do
+    scope = AccountsFixtures.user_scope_fixture()
+
+    request_fun = fn _url, payload, _opts ->
+      send(self(), {:tool_schema_payload, payload})
+      {:error, :stubbed}
+    end
+
+    assert {:error, :stubbed, _ctx} =
+             LlmSession.run(scope, "Plan work",
+               request_fun: request_fun,
+               api_key: "test",
+               max_rounds: 1
+             )
+
+    assert_received {:tool_schema_payload, payload}
+
+    [%{"functionDeclarations" => declarations}] = payload["tools"]
+    record_plan = Enum.find(declarations, &(&1["name"] == "record_plan"))
+
+    assert get_in(record_plan, ["parameters", "properties", "steps", "type"]) == "array"
+    assert get_in(record_plan, ["parameters", "properties", "steps", "items", "type"]) == "string"
+  end
+
+  test "recovers from state machine errors when possible" do
+    scope = AccountsFixtures.user_scope_fixture()
+
+    Process.put(:llm_responses, [
+      stub_response("record_plan", %{}),
+      stub_response("record_plan", %{
+        "plan" => "Cluster upgrades",
+        "steps" => ["Upgrade Cortex", "Upgrade USRM"]
+      }),
+      stub_response("complete_session", %{})
+    ])
+
+    request_fun = fn _url, _payload, _opts ->
+      case Process.get(:llm_responses) do
+        [resp | rest] ->
+          Process.put(:llm_responses, rest)
+          resp
+
+        _ ->
+          flunk("no more responses queued")
+      end
+    end
+
+    {:ok, result} =
+      LlmSession.run(scope, "Handle upgrades",
+        request_fun: request_fun,
+        api_key: "test"
+      )
+
+    assert result.machine.state == :completed
+    assert Enum.map(result.executed, & &1.name) == [:record_plan, :complete_session]
+
+    assert Enum.any?(get_in(result, [:last_response, :plan_notes]), fn note ->
+             note.plan == "Cluster upgrades"
+           end)
+  end
+
+  test "stops automation after exceeding retry limit" do
+    scope = AccountsFixtures.user_scope_fixture()
+
+    Process.put(
+      :llm_responses,
+      Enum.map(1..2, fn _ -> stub_response("record_plan", %{}) end)
+    )
+
+    request_fun = fn _url, _payload, _opts ->
+      case Process.get(:llm_responses) do
+        [resp | rest] ->
+          Process.put(:llm_responses, rest)
+          resp
+
+        _ ->
+          flunk("no more responses queued")
+      end
+    end
+
+    assert {:error, :max_errors, ctx} =
+             LlmSession.run(scope, "still failing",
+               request_fun: request_fun,
+               api_key: "test",
+               max_errors: 2
+             )
+
+    assert ctx.errors == 2
+    assert Enum.map(ctx.executed, & &1.name) == []
+  end
+
   test "uses Helicone proxy headers when configured" do
     scope = AccountsFixtures.user_scope_fixture()
 

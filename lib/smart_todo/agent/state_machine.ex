@@ -646,6 +646,14 @@ defmodule SmartTodo.Agent.StateMachine do
 
   defp normalize_plan_steps(nil), do: {:ok, []}
 
+  defp normalize_plan_steps(steps) when is_binary(steps) do
+    steps
+    |> String.split(~r/\r?\n/, trim: true)
+    |> Enum.flat_map(&String.split(&1, ~r/\s*\|\s*/, trim: true))
+    |> Enum.flat_map(&String.split(&1, ~r/\s*;\s*/, trim: true))
+    |> normalize_plan_steps()
+  end
+
   defp normalize_plan_steps(steps) when is_list(steps) do
     cleaned =
       steps

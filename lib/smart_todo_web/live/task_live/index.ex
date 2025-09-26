@@ -267,7 +267,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
         {:llm_session_result, ref, {:error, reason, ctx}},
         %{assigns: %{automation_job_ref: ref}} = socket
       ) do
-    Logger.error("LLM automation failed", reason: inspect(reason), context: inspect(ctx))
+    log_automation_failure(reason, ctx)
 
     socket =
       socket
@@ -453,6 +453,67 @@ defmodule SmartTodoWeb.TaskLive.Index do
   defp prereq_options(tasks) do
     Enum.map(tasks, fn t -> {t.title, t.id} end)
   end
+
+  defp log_automation_failure(reason, ctx) do
+    executed =
+      ctx
+      |> Map.get(:executed, [])
+      |> Enum.map(&command_name_string/1)
+
+    executed_value =
+      case executed do
+        [] -> nil
+        list -> Enum.join(list, ",")
+      end
+
+    last_response = Map.get(ctx, :last_response, %{})
+    machine = Map.get(ctx, :machine, %{})
+
+    pending_ops = fetch_list(last_response, :pending_operations)
+    plan_notes = fetch_list(last_response, :plan_notes)
+
+    metadata =
+      [
+        reason: inspect(reason),
+        state: machine_state(machine),
+        last_state: fetch_value(last_response, :state),
+        last_message: fetch_value(last_response, :message),
+        executed: executed_value,
+        error_count: Map.get(ctx, :errors, 0),
+        pending_ops_count: length(pending_ops),
+        plan_notes_count: length(plan_notes),
+        conversation_turns: conversation_count(ctx)
+      ]
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+
+    Logger.error("LLM automation failed", metadata)
+  end
+
+  defp fetch_list(map, key) do
+    case fetch_value(map, key) do
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
+
+  defp fetch_value(map, key) do
+    Map.get(map, key) || Map.get(map, to_string(key))
+  end
+
+  defp machine_state(%{state: state}), do: inspect(state)
+  defp machine_state(_), do: nil
+
+  defp conversation_count(ctx) do
+    case Map.get(ctx, :conversation) do
+      list when is_list(list) -> length(list)
+      _ -> 0
+    end
+  end
+
+  defp command_name_string(%{name: name}), do: command_name_string(name)
+  defp command_name_string(name) when is_atom(name), do: Atom.to_string(name)
+  defp command_name_string(name) when is_binary(name), do: name
+  defp command_name_string(name), do: to_string(name)
 
   defp assign_task_lists(socket, tasks, opts \\ []) do
     grouped = categorize_tasks(tasks)
