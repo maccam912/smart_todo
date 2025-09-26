@@ -9,11 +9,16 @@
     </.live_title>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <link rel="manifest" href={~p"/manifest.webmanifest"} />
-    <meta name="theme-color" content="#1d4ed8" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#1d4ed8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
     <meta name="application-name" content="SmartTodo" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SmartTodo" />
+    <link rel="icon" sizes="192x192" href={~p"/images/icons/icon-192x192.png"} />
+    <link rel="icon" sizes="512x512" href={~p"/images/icons/icon-512x512.png"} />
     <link rel="apple-touch-icon" sizes="192x192" href={~p"/images/icons/icon-192x192.png"} />
     <link rel="apple-touch-icon" sizes="512x512" href={~p"/images/icons/icon-512x512.png"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>

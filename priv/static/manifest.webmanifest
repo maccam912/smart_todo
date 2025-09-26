@@ -1,12 +1,18 @@
 {
+  "id": "/",
   "name": "SmartTodo",
   "short_name": "SmartTodo",
   "description": "Capture, plan, and complete tasks with the SmartTodo assistant.",
-  "start_url": "/",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "window-controls-overlay"],
+  "orientation": "portrait",
   "background_color": "#111827",
   "theme_color": "#1d4ed8",
+  "categories": ["productivity", "utilities"],
   "icons": [
     {
       "src": "/images/icons/icon-192x192.png",
@@ -20,5 +26,34 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "My Tasks",
+      "short_name": "Tasks",
+      "description": "Jump straight to your task dashboard.",
+      "url": "/tasks",
+      "icons": [
+        {
+          "src": "/images/icons/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Create a Task",
+      "short_name": "New Task",
+      "description": "Open SmartTodo ready to capture a new task.",
+      "url": "/tasks?new_task=1",
+      "icons": [
+        {
+          "src": "/images/icons/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "prefer_related_applications": false
 }

@@ -82,10 +82,87 @@ if (process.env.NODE_ENV === "development") {
 }
 
 
+const pwaState = {
+  deferredPrompt: null,
+  registration: null,
+}
+
+window.smartTodoPWA = {
+  get canInstall() {
+    return Boolean(pwaState.deferredPrompt)
+  },
+  async promptInstall() {
+    if (!pwaState.deferredPrompt) {
+      return false
+    }
+
+    pwaState.deferredPrompt.prompt()
+    const choiceResult = await pwaState.deferredPrompt.userChoice
+    window.dispatchEvent(
+      new CustomEvent("smarttodo:pwa-install-choice", {detail: {outcome: choiceResult.outcome}})
+    )
+    pwaState.deferredPrompt = null
+    return choiceResult.outcome === "accepted"
+  },
+  async activateUpdate() {
+    const registration =
+      pwaState.registration || (navigator.serviceWorker ? await navigator.serviceWorker.ready : null)
+
+    if (registration && registration.waiting) {
+      registration.waiting.postMessage({type: "SKIP_WAITING"})
+    } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({type: "SKIP_WAITING"})
+    }
+  },
+}
+
+window.addEventListener("beforeinstallprompt", event => {
+  event.preventDefault()
+  pwaState.deferredPrompt = event
+  window.dispatchEvent(new CustomEvent("smarttodo:pwa-install-available"))
+})
+
+window.addEventListener("appinstalled", () => {
+  pwaState.deferredPrompt = null
+  window.dispatchEvent(new CustomEvent("smarttodo:pwa-installed"))
+})
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/service-worker.js").catch(error => {
-      console.error("Service worker registration failed", error)
-    })
+    navigator.serviceWorker
+      .register("/service-worker.js")
+      .then(registration => {
+        pwaState.registration = registration
+        window.dispatchEvent(
+          new CustomEvent("smarttodo:service-worker-ready", {detail: {registration}})
+        )
+
+        registration.addEventListener("updatefound", () => {
+          const newWorker = registration.installing
+
+          if (!newWorker) {
+            return
+          }
+
+          newWorker.addEventListener("statechange", () => {
+            if (
+              newWorker.state === "installed" &&
+              navigator.serviceWorker &&
+              navigator.serviceWorker.controller
+            ) {
+              window.dispatchEvent(
+                new CustomEvent("smarttodo:service-worker-updated", {detail: {registration}})
+              )
+            }
+          })
+        })
+      })
+      .catch(error => {
+        console.error("Service worker registration failed", error)
+      })
+  })
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    window.dispatchEvent(new CustomEvent("smarttodo:service-worker-active"))
   })
 }

@@ -18,7 +18,7 @@ defmodule SmartTodoWeb do
   """
 
   def static_paths,
-    do: ~w(assets fonts images favicon.ico manifest.webmanifest robots.txt service-worker.js)
+    do: ~w(assets fonts images favicon.ico manifest.webmanifest offline.html robots.txt service-worker.js)
 
   def router do
     quote do
