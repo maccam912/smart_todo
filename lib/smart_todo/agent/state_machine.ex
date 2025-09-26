@@ -19,7 +19,8 @@ defmodule SmartTodo.Agent.StateMachine do
             state: :awaiting_command,
             pending_ops: [],
             edit_context: nil,
-            next_pending_ref: 1
+            next_pending_ref: 1,
+            plan_notes: []
 
   @type target :: {:existing, integer()} | {:pending, integer()}
   @type pending_op ::
@@ -28,6 +29,7 @@ defmodule SmartTodo.Agent.StateMachine do
           | %{type: :delete_task, target: target(), attrs: map()}
           | %{type: :complete_task, target: target(), attrs: map()}
   @type edit_context :: %{target: target(), staged: map()}
+  @type plan_note :: %{plan: String.t(), steps: [String.t()]}
   @type state :: :awaiting_command | {:editing_task, target()} | :completed
 
   @type t :: %__MODULE__{
@@ -35,7 +37,8 @@ defmodule SmartTodo.Agent.StateMachine do
           state: state(),
           pending_ops: [pending_op()],
           edit_context: edit_context() | nil,
-          next_pending_ref: pos_integer()
+          next_pending_ref: pos_integer(),
+          plan_notes: [plan_note()]
         }
 
   @type command ::
@@ -47,6 +50,7 @@ defmodule SmartTodo.Agent.StateMachine do
           | :exit_editing
           | :discard_all
           | :complete_session
+          | :record_plan
 
   @allowed_fields ~w(title description status urgency due_date recurrence assignee_id prerequisite_ids)a
 
@@ -187,6 +191,17 @@ defmodule SmartTodo.Agent.StateMachine do
 
       {:ok, updated, summary} ->
         {:ok, updated, commit_message(summary)}
+
+      {:error, message} ->
+        {:error, message}
+    end
+  end
+
+  defp do_handle(machine, :record_plan, params) do
+    case normalize_plan(params) do
+      {:ok, plan_note} ->
+        updated = %{machine | plan_notes: machine.plan_notes ++ [plan_note]}
+        {:ok, updated, "Plan recorded for reference."}
 
       {:error, message} ->
         {:error, message}
@@ -593,6 +608,67 @@ defmodule SmartTodo.Agent.StateMachine do
 
   defp normalize_field_key(_), do: nil
 
+  defp normalize_plan(params) when is_map(params) do
+    plan = Map.get(params, "plan") || Map.get(params, :plan)
+    steps = Map.get(params, "steps") || Map.get(params, :steps)
+
+    with :ok <- ensure_plan(plan, steps),
+         {:ok, steps_list} <- normalize_plan_steps(steps) do
+      {:ok,
+       %{
+         plan: normalize_plan_text(plan, steps_list),
+         steps: steps_list
+       }}
+    end
+  end
+
+  defp normalize_plan(_), do: {:error, "Plan details must be provided as a map."}
+
+  defp ensure_plan(plan, steps) do
+    cond do
+      is_binary(plan) and String.trim(plan) != "" -> :ok
+      is_list(steps) and Enum.any?(steps, &valid_step?/1) -> :ok
+      true -> {:error, "Provide a non-empty plan summary or at least one textual step."}
+    end
+  end
+
+  defp normalize_plan_text(plan, steps) when is_binary(plan) do
+    trimmed = String.trim(plan)
+
+    cond do
+      trimmed != "" -> trimmed
+      steps == [] -> ""
+      true -> Enum.join(steps, " | ")
+    end
+  end
+
+  defp normalize_plan_text(_plan, steps), do: Enum.join(steps, " | ")
+
+  defp normalize_plan_steps(nil), do: {:ok, []}
+
+  defp normalize_plan_steps(steps) when is_list(steps) do
+    cleaned =
+      steps
+      |> Enum.map(&normalize_plan_step/1)
+      |> Enum.filter(& &1)
+
+    {:ok, cleaned}
+  end
+
+  defp normalize_plan_steps(_), do: {:error, "Steps must be provided as a list of strings."}
+
+  defp normalize_plan_step(step) when is_binary(step) do
+    trimmed = String.trim(step)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_plan_step(step) when is_atom(step), do: normalize_plan_step(Atom.to_string(step))
+  defp normalize_plan_step(_), do: nil
+
+  defp valid_step?(step) when is_binary(step), do: String.trim(step) != ""
+  defp valid_step?(step) when is_atom(step), do: valid_step?(Atom.to_string(step))
+  defp valid_step?(_), do: false
+
   # Response rendering
 
   defp build_response(machine, message, opts \\ []) do
@@ -605,6 +681,7 @@ defmodule SmartTodo.Agent.StateMachine do
       open_tasks: Enum.map(tasks, &public_task_view/1),
       pending_operations: Enum.map(machine.pending_ops, &public_op_view/1),
       editing: render_editing(machine.edit_context, tasks),
+      plan_notes: Enum.map(machine.plan_notes, &public_plan_note/1),
       available_commands: available_commands(machine)
     }
   end
@@ -648,8 +725,21 @@ defmodule SmartTodo.Agent.StateMachine do
     }
   end
 
+  defp public_plan_note(%{plan: plan, steps: steps}) do
+    %{plan: plan, steps: steps}
+  end
+
   defp available_commands(%__MODULE__{state: :awaiting_command, pending_ops: pending}) do
     [
+      %{
+        name: "record_plan",
+        params: %{
+          "plan" => "string summary (required if no steps)",
+          "steps" => "optional list of strings detailing each step"
+        },
+        description:
+          "Document a step-by-step plan whenever fulfilling the request will take multiple commands."
+      },
       %{
         name: "select_task",
         params: %{
@@ -682,6 +772,15 @@ defmodule SmartTodo.Agent.StateMachine do
 
   defp available_commands(%__MODULE__{state: {:editing_task, _target}, pending_ops: pending}) do
     [
+      %{
+        name: "record_plan",
+        params: %{
+          "plan" => "string summary (required if no steps)",
+          "steps" => "optional list of strings detailing each step"
+        },
+        description:
+          "Capture or refine your multi-step plan before issuing further edits or deletions."
+      },
       %{
         name: "update_task_fields",
         params: %{
@@ -727,9 +826,9 @@ defmodule SmartTodo.Agent.StateMachine do
       params: %{},
       description:
         if pending_ops == [] do
-          "Close the session without committing any changes."
+          "Close the session without committing any changes. This must be the final command you issue."
         else
-          "Apply all staged operations in a single transaction and finish."
+          "Apply all staged operations in a single transaction and finish. This must always be your final command."
         end
     }
   end
