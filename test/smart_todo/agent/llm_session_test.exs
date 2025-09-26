@@ -150,4 +150,32 @@ defmodule SmartTodo.Agent.LlmSessionTest do
                max_rounds: 1
              )
   end
+
+  test "applies configured receive timeout when calling the model" do
+    scope = AccountsFixtures.user_scope_fixture()
+
+    Process.put(:llm_responses, [stub_response("complete_session", %{})])
+
+    Application.put_env(:smart_todo, :llm_receive_timeout, 123_000)
+    on_exit(fn -> Application.delete_env(:smart_todo, :llm_receive_timeout) end)
+
+    request_fun = fn _url, _payload, opts ->
+      assert Keyword.get(opts, :receive_timeout) == 123_000
+
+      case Process.get(:llm_responses) do
+        [resp | rest] ->
+          Process.put(:llm_responses, rest)
+          resp
+
+        _ ->
+          flunk("no more responses queued")
+      end
+    end
+
+    assert {:ok, _result} =
+             LlmSession.run(scope, "Finish up",
+               request_fun: request_fun,
+               api_key: "test"
+             )
+  end
 end

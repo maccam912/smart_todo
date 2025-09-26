@@ -15,6 +15,7 @@ defmodule SmartTodo.Agent.LlmSession do
   @max_rounds 20
   @default_model "gemini-2.5-flash"
   @base_url "https://generativelanguage.googleapis.com/v1beta"
+  @default_receive_timeout :timer.minutes(10)
 
   @spec start(Scope.t(), String.t(), keyword()) :: {:ok, pid()}
   def start(scope, user_text, opts \\ []) do
@@ -26,6 +27,8 @@ defmodule SmartTodo.Agent.LlmSession do
   @spec run(Scope.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term(), map()}
   def run(scope, user_text, opts \\ []) do
+    opts = ensure_default_timeouts(opts)
+
     with {:ok, initial} <- build_initial_session(scope, user_text),
          {:ok, result} <- conversation_loop(initial, opts) do
       {:ok, result}
@@ -175,11 +178,30 @@ defmodule SmartTodo.Agent.LlmSession do
   defp default_request(url, payload, opts) do
     api_key = Keyword.get(opts, :api_key, api_key!())
 
-    case Req.post(url: url, params: %{key: api_key}, json: payload) do
+    request_options =
+      [
+        url: url,
+        params: %{key: api_key},
+        json: payload,
+        receive_timeout: Keyword.get(opts, :receive_timeout, default_receive_timeout())
+      ]
+
+    case Req.post(request_options) do
       {:ok, %Req.Response{status: 200, body: body}} -> {:ok, body}
       {:ok, %Req.Response{status: status, body: body}} -> {:error, {:http_error, status, body}}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp ensure_default_timeouts(opts) do
+    configured_timeout = default_receive_timeout()
+
+    opts
+    |> Keyword.put_new(:receive_timeout, configured_timeout)
+  end
+
+  defp default_receive_timeout do
+    Application.get_env(:smart_todo, :llm_receive_timeout, @default_receive_timeout)
   end
 
   defp api_key! do
