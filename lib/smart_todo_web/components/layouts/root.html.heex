@@ -69,6 +69,12 @@
               </li>
 
               <li :if={@current_scope}>
+                <.link href={~p"/groups"}>
+                  <.icon name="hero-user-group" class="w-4 h-4" /> Groups
+                </.link>
+              </li>
+
+              <li :if={@current_scope}>
                 <.link href={~p"/users/settings"}>
                   <.icon name="hero-cog-6-tooth" class="w-4 h-4" /> Settings
                 </.link>

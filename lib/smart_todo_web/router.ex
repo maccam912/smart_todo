@@ -55,6 +55,7 @@ defmodule SmartTodoWeb.Router do
       live "/users/settings", UserLive.Settings, :edit
       # Authenticated routes
       live "/tasks", TaskLive.Index, :index
+      live "/groups", GroupLive.Index, :index
     end
 
     post "/users/update-password", UserSessionController, :update_password

@@ -3,7 +3,11 @@
     "allow": [
       "Bash(mix ecto.migrate:*)",
       "Bash(mix test)",
-      "Bash(mix test:*)"
+      "Bash(mix test:*)",
+      "Bash(mix compile)",
+      "Bash(mix phx.server:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

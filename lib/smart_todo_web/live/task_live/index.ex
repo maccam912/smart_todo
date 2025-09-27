@@ -1,7 +1,7 @@
 defmodule SmartTodoWeb.TaskLive.Index do
   use SmartTodoWeb, :live_view
 
-  alias SmartTodo.Tasks
+  alias SmartTodo.{Tasks, Accounts}
   alias SmartTodo.Tasks.Task
 
   require Logger
@@ -10,6 +10,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
   def mount(_params, _session, socket) do
     current_scope = socket.assigns.current_scope
     tasks = Tasks.list_tasks(current_scope)
+    groups = Accounts.list_groups()
 
     form =
       %Task{}
@@ -28,6 +29,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
       |> assign(:edit_selected_prereq_ids, [])
       |> assign(:show_completed?, false)
       |> assign(:prereq_options, prereq_options(tasks))
+      |> assign(:group_options, group_options(groups))
       |> assign(:automation_status, :idle)
       |> assign(:automation_job_ref, nil)
 
@@ -99,6 +101,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
     case Tasks.create_task(socket.assigns.current_scope, params) do
       {:ok, _task} ->
         tasks = Tasks.list_tasks(socket.assigns.current_scope)
+        groups = Accounts.list_groups()
 
         {:noreply,
          socket
@@ -107,6 +110,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
          |> assign(:selected_prereq_ids, [])
          |> assign(:form, %Task{} |> Tasks.change_task() |> to_form())
          |> assign(:prereq_options, prereq_options(tasks))
+         |> assign(:group_options, group_options(groups))
          |> assign_task_lists(tasks, reset: true)}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -199,11 +203,13 @@ defmodule SmartTodoWeb.TaskLive.Index do
         case Tasks.update_task(socket.assigns.current_scope, task, params) do
           {:ok, _task} ->
             tasks = Tasks.list_tasks(socket.assigns.current_scope)
+            groups = Accounts.list_groups()
 
             socket =
               socket
               |> put_flash(:info, "Task updated")
               |> assign(:prereq_options, prereq_options(tasks))
+              |> assign(:group_options, group_options(groups))
               |> assign(:editing_task_id, nil)
               |> assign(:edit_form, nil)
               |> assign(:edit_selected_prereq_ids, [])
@@ -226,11 +232,13 @@ defmodule SmartTodoWeb.TaskLive.Index do
     case Tasks.delete_task(socket.assigns.current_scope, task_id) do
       {:ok, deleted_task} ->
         tasks = Tasks.list_tasks(socket.assigns.current_scope)
+        groups = Accounts.list_groups()
 
         socket =
           socket
           |> put_flash(:info, "Task deleted")
           |> assign(:prereq_options, prereq_options(tasks))
+          |> assign(:group_options, group_options(groups))
 
         socket =
           if socket.assigns.editing_task_id == deleted_task.id do
@@ -375,9 +383,11 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
   defp refresh_tasks(socket) do
     tasks = Tasks.list_tasks(socket.assigns.current_scope)
+    groups = Accounts.list_groups()
 
     socket
     |> assign(:prereq_options, prereq_options(tasks))
+    |> assign(:group_options, group_options(groups))
     |> assign_task_lists(tasks, reset: true)
   end
 
@@ -452,6 +462,10 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
   defp prereq_options(tasks) do
     Enum.map(tasks, fn t -> {t.title, t.id} end)
+  end
+
+  defp group_options(groups) do
+    Enum.map(groups, fn g -> {g.name, g.id} end)
   end
 
   defp log_automation_failure(reason, ctx) do
@@ -636,6 +650,22 @@ defmodule SmartTodoWeb.TaskLive.Index do
               />
 
               <.input
+                field={@form[:assignee_id]}
+                type="select"
+                label="Assign to User"
+                prompt="Assign to me"
+                options={[{"Me", @current_scope.user.id}]}
+              />
+
+              <.input
+                field={@form[:assigned_group_id]}
+                type="select"
+                label="Assign to Group"
+                prompt="No group assignment"
+                options={@group_options}
+              />
+
+              <.input
                 id="task_prereq_ids"
                 name="task[prerequisite_ids]"
                 type="select"
@@ -694,6 +724,22 @@ defmodule SmartTodoWeb.TaskLive.Index do
                 type="textarea"
                 label="Description"
                 class="textarea textarea-bordered"
+              />
+
+              <.input
+                field={@edit_form[:assignee_id]}
+                type="select"
+                label="Assign to User"
+                prompt="No user assignment"
+                options={[{"Me", @current_scope.user.id}]}
+              />
+
+              <.input
+                field={@edit_form[:assigned_group_id]}
+                type="select"
+                label="Assign to Group"
+                prompt="No group assignment"
+                options={@group_options}
               />
 
               <.input
@@ -862,6 +908,14 @@ defmodule SmartTodoWeb.TaskLive.Index do
               <span :if={@task.due_date} class="badge badge-ghost">
                 <.icon name="hero-calendar" class="w-4 h-4 mr-1" />
                 {Calendar.strftime(@task.due_date, "%Y-%m-%d")}
+              </span>
+              <span :if={@task.assignee_id != nil and @task.assignee_id != @task.user_id} class="badge badge-info">
+                <.icon name="hero-user" class="w-3 h-3 mr-1" />
+                Assigned to user
+              </span>
+              <span :if={@task.assigned_group_id} class="badge badge-secondary">
+                <.icon name="hero-user-group" class="w-3 h-3 mr-1" />
+                Group assigned
               </span>
             </div>
 
