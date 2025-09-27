@@ -7,13 +7,7 @@
       "Bash(mix compile)",
       "Bash(mix phx.server:*)",
       "Bash(netstat:*)",
-      "Bash(findstr:*)",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:hexdocs.pm)",
-      "Bash(mix deps.get:*)",
-      "Bash(mix run:*)",
-      "WebSearch"
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []
