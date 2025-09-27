@@ -19,6 +19,20 @@ defmodule SmartTodo.TasksTest do
       assert task.title == "Write tests"
     end
 
+    test "accepts deferred_until date" do
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      tomorrow = Date.add(Date.utc_today(), 1)
+
+      {:ok, task} =
+        Tasks.create_task(scope, %{
+          title: "Snoozed",
+          deferred_until: Date.to_iso8601(tomorrow)
+        })
+
+      assert task.deferred_until == tomorrow
+    end
+
     test "accepts prerequisite_ids and persists dependencies" do
       user = user_fixture()
       scope = Scope.for_user(user)
@@ -108,14 +122,16 @@ defmodule SmartTodo.TasksTest do
         |> Enum.map(& &1.title)
         |> Enum.sort()
 
-      assert owner_titles == Enum.sort([owner_task.title, direct_assignment.title, group_assignment.title])
+      assert owner_titles ==
+               Enum.sort([owner_task.title, direct_assignment.title, group_assignment.title])
 
       member_titles =
         Tasks.list_tasks(scope_member)
         |> Enum.map(& &1.title)
         |> Enum.sort()
 
-      assert member_titles == Enum.sort([member_task.title, direct_assignment.title, group_assignment.title])
+      assert member_titles ==
+               Enum.sort([member_task.title, direct_assignment.title, group_assignment.title])
 
       outsider_titles =
         Tasks.list_tasks(scope_outsider)

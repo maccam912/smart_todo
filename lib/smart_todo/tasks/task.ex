@@ -28,6 +28,7 @@ defmodule SmartTodo.Tasks.Task do
     field :urgency, Ecto.Enum, values: @urgency_values, default: :normal
     field :due_date, :date
     field :recurrence, Ecto.Enum, values: @recurrence_values, default: :none
+    field :deferred_until, :date
 
     has_many :prerequisite_links, TaskDependency, foreign_key: :blocked_task_id
     has_many :prerequisites, through: [:prerequisite_links, :prereq]
@@ -41,7 +42,17 @@ defmodule SmartTodo.Tasks.Task do
   @doc false
   def changeset(%Task{} = task, attrs) do
     task
-    |> cast(attrs, [:title, :description, :status, :urgency, :due_date, :recurrence, :assignee_id, :assigned_group_id])
+    |> cast(attrs, [
+      :title,
+      :description,
+      :status,
+      :urgency,
+      :due_date,
+      :recurrence,
+      :assignee_id,
+      :assigned_group_id,
+      :deferred_until
+    ])
     |> validate_required([:title])
     |> validate_length(:title, max: 200)
     |> validate_length(:description, max: 10_000)
@@ -53,7 +64,8 @@ defmodule SmartTodo.Tasks.Task do
     assigned_group_id = get_field(changeset, :assigned_group_id)
 
     case {assignee_id, assigned_group_id} do
-      {_assignee_id, _assigned_group_id} when not is_nil(assignee_id) and not is_nil(assigned_group_id) ->
+      {_assignee_id, _assigned_group_id}
+      when not is_nil(assignee_id) and not is_nil(assigned_group_id) ->
         add_error(changeset, :base, "task cannot be assigned to both a user and a group")
 
       _ ->

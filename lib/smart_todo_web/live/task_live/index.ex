@@ -29,10 +29,12 @@ defmodule SmartTodoWeb.TaskLive.Index do
       |> assign(:edit_form, nil)
       |> assign(:edit_selected_prereq_ids, [])
       |> assign(:edit_assignment_selection, nil)
+      |> assign(:assignment_selection, "")
+      |> assign(:defer_option_selection, "")
+      |> assign(:edit_defer_option_selection, nil)
       |> assign(:show_completed?, false)
       |> assign(:prereq_options, prereq_options(tasks))
       |> assign(:assignment_options, assignment_opts)
-      |> assign(:assignment_selection, "")
       |> assign(:automation_status, :idle)
       |> assign(:automation_job_ref, nil)
 
@@ -42,7 +44,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
   @impl true
   def handle_event("validate", %{"task" => params}, socket) do
     assignment_value = Map.get(params, "assignment_target", "")
-    normalized_params = normalize_assignment_params(params, :create)
+    defer_option = Map.get(params, "defer_option", "")
+    normalized_params = normalize_task_params(params, :create)
 
     form =
       %Task{}
@@ -51,11 +54,13 @@ defmodule SmartTodoWeb.TaskLive.Index do
       |> to_form()
 
     selected = Map.get(params, "prerequisite_ids", [])
+
     {:noreply,
      socket
      |> assign(:form, form)
      |> assign(:selected_prereq_ids, selected)
-     |> assign(:assignment_selection, assignment_value)}
+     |> assign(:assignment_selection, assignment_value)
+     |> assign(:defer_option_selection, defer_option)}
   end
 
   @impl true
@@ -109,7 +114,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
   @impl true
   def handle_event("save", %{"task" => params}, socket) do
     assignment_value = Map.get(params, "assignment_target", "")
-    normalized_params = normalize_assignment_params(params, :create)
+    defer_option = Map.get(params, "defer_option", "")
+    normalized_params = normalize_task_params(params, :create)
 
     case Tasks.create_task(socket.assigns.current_scope, normalized_params) do
       {:ok, _task} ->
@@ -124,6 +130,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
          |> assign(:selected_prereq_ids, [])
          |> assign(:form, %Task{} |> Tasks.change_task() |> to_form())
          |> assign(:assignment_selection, "")
+         |> assign(:defer_option_selection, "")
          |> assign(:prereq_options, prereq_options(tasks))
          |> assign(:assignment_options, assignment_opts)
          |> assign_task_lists(tasks, reset: true)}
@@ -132,7 +139,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
         {:noreply,
          socket
          |> assign(:form, to_form(changeset))
-         |> assign(:assignment_selection, assignment_value)}
+         |> assign(:assignment_selection, assignment_value)
+         |> assign(:defer_option_selection, defer_option)}
     end
   end
 
@@ -182,18 +190,20 @@ defmodule SmartTodoWeb.TaskLive.Index do
      |> assign(:editing_task_id, task.id)
      |> assign(:edit_form, form)
      |> assign(:edit_selected_prereq_ids, selected)
-      |> assign(:edit_assignment_selection, assignment_value)
-      |> assign(:advanced_open?, false)}
+     |> assign(:edit_assignment_selection, assignment_value)
+     |> assign(:edit_defer_option_selection, "")
+     |> assign(:advanced_open?, false)}
   end
 
   @impl true
   def handle_event("cancel_edit", _params, socket) do
     {:noreply,
-      socket
-      |> assign(:editing_task_id, nil)
-      |> assign(:edit_form, nil)
-      |> assign(:edit_selected_prereq_ids, [])
-      |> assign(:edit_assignment_selection, nil)}
+     socket
+     |> assign(:editing_task_id, nil)
+     |> assign(:edit_form, nil)
+     |> assign(:edit_selected_prereq_ids, [])
+     |> assign(:edit_assignment_selection, nil)
+     |> assign(:edit_defer_option_selection, nil)}
   end
 
   @impl true
@@ -203,8 +213,13 @@ defmodule SmartTodoWeb.TaskLive.Index do
         {:noreply, socket}
 
       form ->
-        assignment_value = Map.get(params, "assignment_target", socket.assigns.edit_assignment_selection || "")
-        normalized_params = normalize_assignment_params(params, :update)
+        assignment_value =
+          Map.get(params, "assignment_target", socket.assigns.edit_assignment_selection || "")
+
+        defer_option =
+          Map.get(params, "defer_option", socket.assigns.edit_defer_option_selection || "")
+
+        normalized_params = normalize_task_params(params, :update, task: form.source.data)
 
         changeset =
           form.source.data
@@ -215,7 +230,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
          socket
          |> assign(:edit_form, to_form(changeset))
          |> assign(:edit_selected_prereq_ids, Map.get(params, "prerequisite_ids", []))
-         |> assign(:edit_assignment_selection, assignment_value)}
+         |> assign(:edit_assignment_selection, assignment_value)
+         |> assign(:edit_defer_option_selection, defer_option)}
     end
   end
 
@@ -228,7 +244,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
       task_id ->
         task = Tasks.get_task!(socket.assigns.current_scope, task_id)
         assignment_value = Map.get(params, "assignment_target", "")
-        normalized_params = normalize_assignment_params(params, :update)
+        defer_option = Map.get(params, "defer_option", "")
+        normalized_params = normalize_task_params(params, :update, task: task)
 
         case Tasks.update_task(socket.assigns.current_scope, task, normalized_params) do
           {:ok, _task} ->
@@ -245,6 +262,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
               |> assign(:edit_form, nil)
               |> assign(:edit_selected_prereq_ids, [])
               |> assign(:edit_assignment_selection, nil)
+              |> assign(:edit_defer_option_selection, nil)
 
             {:noreply, assign_task_lists(socket, tasks, reset: true)}
 
@@ -253,7 +271,8 @@ defmodule SmartTodoWeb.TaskLive.Index do
              socket
              |> assign(:edit_form, to_form(changeset))
              |> assign(:edit_selected_prereq_ids, Map.get(params, "prerequisite_ids", []))
-             |> assign(:edit_assignment_selection, assignment_value)}
+             |> assign(:edit_assignment_selection, assignment_value)
+             |> assign(:edit_defer_option_selection, defer_option)}
         end
     end
   end
@@ -280,6 +299,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
             |> assign(:editing_task_id, nil)
             |> assign(:edit_form, nil)
             |> assign(:edit_selected_prereq_ids, [])
+            |> assign(:edit_defer_option_selection, nil)
             |> assign(:edit_assignment_selection, nil)
           else
             socket
@@ -509,12 +529,28 @@ defmodule SmartTodoWeb.TaskLive.Index do
     [user_option | group_options]
   end
 
+  defp defer_option_options do
+    [
+      {"Tomorrow", "tomorrow"},
+      {"Next week", "next_week"},
+      {"In two weeks", "two_weeks"},
+      {"1 week before due date", "due_minus_week"},
+      {"Clear deferral", "clear"}
+    ]
+  end
+
   defp assignment_value_for(%Task{assignee_id: assignee_id, assigned_group_id: group_id}) do
     cond do
       assignee_id -> "user:#{assignee_id}"
       group_id -> "group:#{group_id}"
       true -> ""
     end
+  end
+
+  defp normalize_task_params(params, mode, opts \\ []) do
+    params
+    |> normalize_assignment_params(mode)
+    |> normalize_defer_params(mode, opts)
   end
 
   defp normalize_assignment_params(params, mode) do
@@ -533,7 +569,9 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
       "" ->
         case mode do
-          :create -> params
+          :create ->
+            params
+
           :update ->
             params
             |> Map.put("assignee_id", nil)
@@ -555,11 +593,111 @@ defmodule SmartTodoWeb.TaskLive.Index do
     end
   end
 
+  defp normalize_defer_params(params, _mode, opts) do
+    manual_value = Map.get(params, "deferred_until") || Map.get(params, :deferred_until)
+
+    params =
+      params
+      |> Map.delete(:deferred_until)
+      |> nilify_empty("deferred_until")
+
+    {defer_option, params} = pop_defer_option(params)
+
+    cond do
+      manual_value not in [nil, ""] ->
+        params
+
+      defer_option in [nil, ""] ->
+        params
+
+      defer_option == "clear" ->
+        params
+        |> Map.put("deferred_until", nil)
+
+      true ->
+        due_date = resolve_due_date(params, opts)
+
+        case apply_defer_option(defer_option, due_date) do
+          {:ok, date} ->
+            iso = Date.to_iso8601(date)
+
+            Map.put(params, "deferred_until", iso)
+
+          :error ->
+            params
+        end
+    end
+  end
+
   defp pop_assignment_target(params) do
     {value_string, params} = Map.pop(params, "assignment_target")
     {value_atom, params} = Map.pop(params, :assignment_target)
     {value_string || value_atom, params}
   end
+
+  defp pop_defer_option(params) do
+    {option_string, params} = Map.pop(params, "defer_option")
+    {option_atom, params} = Map.pop(params, :defer_option)
+    {option_string || option_atom, params}
+  end
+
+  defp nilify_empty(map, key) do
+    case Map.get(map, key) do
+      "" -> Map.put(map, key, nil)
+      _ -> map
+    end
+  end
+
+  defp resolve_due_date(params, opts) do
+    with nil <- parse_date(Map.get(params, "due_date")),
+         nil <- parse_date(Map.get(params, :due_date)) do
+      case Keyword.get(opts, :task) do
+        %Task{due_date: %Date{} = due_date} -> due_date
+        _ -> nil
+      end
+    else
+      date -> date
+    end
+  end
+
+  defp parse_date(%Date{} = date), do: date
+
+  defp parse_date(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" ->
+        nil
+
+      trimmed ->
+        case Date.from_iso8601(trimmed) do
+          {:ok, date} -> date
+          _ -> nil
+        end
+    end
+  end
+
+  defp parse_date(_), do: nil
+
+  defp apply_defer_option("tomorrow", _due_date) do
+    {:ok, Date.add(Date.utc_today(), 1)}
+  end
+
+  defp apply_defer_option("next_week", _due_date) do
+    {:ok, Date.add(Date.utc_today(), 7)}
+  end
+
+  defp apply_defer_option("two_weeks", _due_date) do
+    {:ok, Date.add(Date.utc_today(), 14)}
+  end
+
+  defp apply_defer_option("due_minus_week", nil), do: :error
+
+  defp apply_defer_option("due_minus_week", %Date{} = due_date) do
+    {:ok, Date.add(due_date, -7)}
+  end
+
+  defp apply_defer_option(_, _), do: :error
 
   defp log_automation_failure(reason, ctx) do
     executed =
@@ -632,16 +770,19 @@ defmodule SmartTodoWeb.TaskLive.Index do
       |> assign(:urgent_empty?, grouped.urgent_ready == [])
       |> assign(:ready_empty?, grouped.ready == [])
       |> assign(:blocked_empty?, grouped.blocked == [])
+      |> assign(:deferred_empty?, grouped.deferred == [])
       |> assign(:completed_empty?, grouped.completed == [])
       |> assign(:urgent_count, length(grouped.urgent_ready))
       |> assign(:ready_count, length(grouped.ready))
       |> assign(:blocked_count, length(grouped.blocked))
+      |> assign(:deferred_count, length(grouped.deferred))
       |> assign(:completed_count, length(grouped.completed))
 
     socket
     |> maybe_stream(:urgent_tasks, grouped.urgent_ready, reset?)
     |> maybe_stream(:ready_tasks, grouped.ready, reset?)
     |> maybe_stream(:blocked_tasks, grouped.blocked, reset?)
+    |> maybe_stream(:deferred_tasks, grouped.deferred, reset?)
     |> maybe_stream(:completed_tasks, grouped.completed, reset?)
   end
 
@@ -649,13 +790,15 @@ defmodule SmartTodoWeb.TaskLive.Index do
   defp maybe_stream(socket, key, entries, false), do: stream(socket, key, entries)
 
   defp categorize_tasks(tasks) do
-    initial = %{urgent_ready: [], ready: [], blocked: [], completed: []}
+    today = Date.utc_today()
+    initial = %{urgent_ready: [], ready: [], blocked: [], deferred: [], completed: []}
 
     tasks
     |> Enum.reduce(initial, fn task, acc ->
       key =
         cond do
           task.status == :done -> :completed
+          deferred_in_future?(task, today) -> :deferred
           blocked?(task) -> :blocked
           urgent?(task) -> :urgent_ready
           true -> :ready
@@ -663,10 +806,26 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
       Map.update!(acc, key, &[task | &1])
     end)
-    |> Enum.into(%{}, fn {key, list} -> {key, Enum.reverse(list)} end)
+    |> Enum.into(%{}, fn {key, list} ->
+      items = Enum.reverse(list)
+
+      sorted =
+        case key do
+          :deferred -> Enum.sort_by(items, &(&1.deferred_until || today))
+          _ -> items
+        end
+
+      {key, sorted}
+    end)
   end
 
   defp urgent?(task), do: task.urgency in [:high, :critical]
+
+  defp deferred_in_future?(%Task{deferred_until: %Date{} = deferred_until}, today) do
+    Date.compare(deferred_until, today) == :gt
+  end
+
+  defp deferred_in_future?(_, _), do: false
 
   @impl true
   def render(assigns) do
@@ -743,6 +902,22 @@ defmodule SmartTodoWeb.TaskLive.Index do
               />
 
               <.input
+                field={@form[:deferred_until]}
+                type="date"
+                label="Defer until"
+              />
+
+              <.input
+                id="task_defer_option"
+                name="task[defer_option]"
+                type="select"
+                label="Quick deferral"
+                prompt="No quick selection"
+                options={defer_option_options()}
+                value={@defer_option_selection}
+              />
+
+              <.input
                 type="select"
                 id="task_assignment_target"
                 name="task[assignment_target]"
@@ -811,6 +986,22 @@ defmodule SmartTodoWeb.TaskLive.Index do
                 type="textarea"
                 label="Description"
                 class="textarea textarea-bordered"
+              />
+
+              <.input
+                field={@edit_form[:deferred_until]}
+                type="date"
+                label="Defer until"
+              />
+
+              <.input
+                id="edit_task_defer_option"
+                name="task[defer_option]"
+                type="select"
+                label="Quick deferral"
+                prompt="No quick selection"
+                options={defer_option_options()}
+                value={@edit_defer_option_selection || ""}
               />
 
               <.input
@@ -909,6 +1100,25 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
         <section>
           <div class="flex items-center justify-between gap-3">
+            <h2 class="text-xl font-semibold">Deferred</h2>
+            <span class="text-sm text-base-content/70">{@deferred_count} snoozed</span>
+          </div>
+          <p :if={@deferred_empty?} class="mt-4 text-sm text-base-content/70">
+            Tasks deferred into the future will show up here until the defer date passes.
+          </p>
+          <div :if={!@deferred_empty?} id="deferred-tasks" phx-update="stream" class="mt-4 space-y-3">
+            <.task_card
+              :for={{id, task} <- @streams.deferred_tasks}
+              id={id}
+              task={task}
+              variant={:deferred}
+              editing={@editing_task_id == task.id}
+            />
+          </div>
+        </section>
+
+        <section>
+          <div class="flex items-center justify-between gap-3">
             <div>
               <h2 class="text-xl font-semibold">Completed</h2>
               <span class="text-sm text-base-content/60">{@completed_count} done</span>
@@ -990,13 +1200,18 @@ defmodule SmartTodoWeb.TaskLive.Index do
                 <.icon name="hero-calendar" class="w-4 h-4 mr-1" />
                 {Calendar.strftime(@task.due_date, "%Y-%m-%d")}
               </span>
-              <span :if={@task.assignee_id != nil and @task.assignee_id != @task.user_id} class="badge badge-info">
-                <.icon name="hero-user" class="w-3 h-3 mr-1" />
-                Assigned to user
+              <span
+                :if={@task.assignee_id != nil and @task.assignee_id != @task.user_id}
+                class="badge badge-info"
+              >
+                <.icon name="hero-user" class="w-3 h-3 mr-1" /> Assigned to user
               </span>
               <span :if={@task.assigned_group_id} class="badge badge-secondary">
-                <.icon name="hero-user-group" class="w-3 h-3 mr-1" />
-                Group assigned
+                <.icon name="hero-user-group" class="w-3 h-3 mr-1" /> Group assigned
+              </span>
+              <span :if={@task.deferred_until} class={deferred_badge_classes(@task)}>
+                <.icon name="hero-clock" class="w-3 h-3 mr-1" />
+                Deferred until {format_date(@task.deferred_until)}
               </span>
             </div>
 
@@ -1082,6 +1297,9 @@ defmodule SmartTodoWeb.TaskLive.Index do
   defp task_card_classes(:blocked, editing?),
     do: decorate_classes(["card bg-base-200 border border-warning/50"], editing?)
 
+  defp task_card_classes(:deferred, editing?),
+    do: decorate_classes(["card bg-base-200 border border-info/40 opacity-80"], editing?)
+
   defp task_card_classes(:completed, editing?),
     do: decorate_classes(["card bg-base-200 border border-base-300 opacity-60"], editing?)
 
@@ -1105,4 +1323,17 @@ defmodule SmartTodoWeb.TaskLive.Index do
   defp incomplete_count(task) do
     Enum.count(task.prerequisites, &(&1.status != :done))
   end
+
+  defp deferred_badge_classes(task) do
+    if future_deferred?(task) do
+      ["badge badge-warning"]
+    else
+      ["badge badge-ghost"]
+    end
+  end
+
+  defp future_deferred?(task), do: deferred_in_future?(task, Date.utc_today())
+
+  defp format_date(%Date{} = date), do: Calendar.strftime(date, "%Y-%m-%d")
+  defp format_date(_), do: ""
 end

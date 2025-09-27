@@ -29,8 +29,7 @@ defmodule SmartTodo.Tasks do
 
     base =
       from t in Task,
-        where:
-          t.user_id == ^uid or t.assignee_id == ^uid or t.assigned_group_id in ^group_ids,
+        where: t.user_id == ^uid or t.assignee_id == ^uid or t.assigned_group_id in ^group_ids,
         preload: [
           prerequisites: [],
           dependents: []
@@ -85,11 +84,16 @@ defmodule SmartTodo.Tasks do
     # Default assignee to owner if no assignment is specified
     attrs =
       if not Map.has_key?(attrs, "assignee_id") and not Map.has_key?(attrs, :assignee_id) and
-         not Map.has_key?(attrs, "assigned_group_id") and not Map.has_key?(attrs, :assigned_group_id) do
-        Map.put(attrs, :assignee_id, uid)
+           not Map.has_key?(attrs, "assigned_group_id") and
+           not Map.has_key?(attrs, :assigned_group_id) do
+        attrs
+        |> Map.put("assignee_id", uid)
+        |> Map.delete(:assignee_id)
       else
         attrs
       end
+
+    attrs = stringify_keys(attrs)
 
     %Task{user_id: uid}
     |> Task.changeset(attrs)
@@ -117,6 +121,7 @@ defmodule SmartTodo.Tasks do
     _uid = user_id!(current_scope)
 
     {attrs, prereq_ids, prereq_present?} = split_prereq_params(attrs)
+    attrs = stringify_keys(attrs)
 
     task
     |> Task.changeset(attrs)
@@ -174,7 +179,11 @@ defmodule SmartTodo.Tasks do
             next_due = advance_due_date(task.due_date, task.recurrence)
 
             _ =
-              %Task{user_id: task.user_id, assignee_id: task.assignee_id, assigned_group_id: task.assigned_group_id}
+              %Task{
+                user_id: task.user_id,
+                assignee_id: task.assignee_id,
+                assigned_group_id: task.assigned_group_id
+              }
               |> Task.changeset(%{
                 title: task.title,
                 description: task.description,
@@ -288,6 +297,13 @@ defmodule SmartTodo.Tasks do
   defp normalize_prereq_ids(id) when is_integer(id), do: [id]
   defp normalize_prereq_ids(id) when is_binary(id), do: [String.to_integer(id)]
 
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+      {key, value} -> {key, value}
+    end)
+  end
+
   defp group_ids_for_user(user_id) do
     direct_group_ids =
       from(gm in GroupMembership,
@@ -317,7 +333,9 @@ defmodule SmartTodo.Tasks do
     new_ids = Enum.reject(parent_ids, &MapSet.member?(acc, &1))
 
     case new_ids do
-      [] -> acc
+      [] ->
+        acc
+
       _ ->
         updated = Enum.reduce(new_ids, acc, &MapSet.put(&2, &1))
         accumulate_parent_groups(updated, new_ids)
@@ -410,7 +428,3 @@ defmodule SmartTodo.Tasks do
     |> Repo.all()
   end
 end
-
-
-
-

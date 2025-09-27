@@ -184,4 +184,31 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
 
     assert has_element?(lv, "#completed-tasks div[id^=\"completed_tasks-\"]")
   end
+
+  test "deferred tasks render in their dedicated section", %{conn: conn} do
+    user = user_fixture()
+    conn = log_in_user(conn, user)
+    scope = Scope.for_user(user)
+
+    future_date = Date.add(Date.utc_today(), 5)
+
+    {:ok, deferred} =
+      Tasks.create_task(scope, %{
+        "title" => "Deferred",
+        "deferred_until" => Date.to_iso8601(future_date)
+      })
+
+    {:ok, active} = Tasks.create_task(scope, %{title: "Active"})
+
+    {:ok, lv, _} = live(conn, ~p"/tasks")
+
+    assert has_element?(
+             lv,
+             "#deferred-tasks div[id=\"deferred_tasks-#{deferred.id}\"]",
+             "Deferred"
+           )
+
+    refute has_element?(lv, "#ready-tasks div[id=\"ready_tasks-#{deferred.id}\"]")
+    assert has_element?(lv, "#ready-tasks div[id=\"ready_tasks-#{active.id}\"]")
+  end
 end
