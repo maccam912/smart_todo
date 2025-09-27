@@ -2,7 +2,7 @@ defmodule SmartTodo.Tasks.Task do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias SmartTodo.Accounts.User
+  alias SmartTodo.Accounts.{User, Group}
   alias SmartTodo.Tasks.{Task, TaskDependency}
 
   @moduledoc """
@@ -19,6 +19,7 @@ defmodule SmartTodo.Tasks.Task do
   schema "tasks" do
     belongs_to :user, User
     belongs_to :assignee, User
+    belongs_to :assigned_group, Group
 
     field :title, :string
     # Database column is :text, but schema uses :string per project guideline
@@ -40,10 +41,24 @@ defmodule SmartTodo.Tasks.Task do
   @doc false
   def changeset(%Task{} = task, attrs) do
     task
-    |> cast(attrs, [:title, :description, :status, :urgency, :due_date, :recurrence])
+    |> cast(attrs, [:title, :description, :status, :urgency, :due_date, :recurrence, :assignee_id, :assigned_group_id])
     |> validate_required([:title])
     |> validate_length(:title, max: 200)
     |> validate_length(:description, max: 10_000)
+    |> validate_assignment()
+  end
+
+  defp validate_assignment(changeset) do
+    assignee_id = get_field(changeset, :assignee_id)
+    assigned_group_id = get_field(changeset, :assigned_group_id)
+
+    case {assignee_id, assigned_group_id} do
+      {_assignee_id, _assigned_group_id} when not is_nil(assignee_id) and not is_nil(assigned_group_id) ->
+        add_error(changeset, :base, "task cannot be assigned to both a user and a group")
+
+      _ ->
+        changeset
+    end
   end
 
   @doc """

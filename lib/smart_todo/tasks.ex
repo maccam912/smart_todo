@@ -79,7 +79,16 @@ defmodule SmartTodo.Tasks do
 
     {attrs, prereq_ids, _present?} = split_prereq_params(attrs)
 
-    %Task{user_id: uid, assignee_id: uid}
+    # Default assignee to owner if no assignment is specified
+    attrs =
+      if not Map.has_key?(attrs, "assignee_id") and not Map.has_key?(attrs, :assignee_id) and
+         not Map.has_key?(attrs, "assigned_group_id") and not Map.has_key?(attrs, :assigned_group_id) do
+        Map.put(attrs, :assignee_id, uid)
+      else
+        attrs
+      end
+
+    %Task{user_id: uid}
     |> Task.changeset(attrs)
     |> Repo.insert()
     |> case do
@@ -162,7 +171,7 @@ defmodule SmartTodo.Tasks do
             next_due = advance_due_date(task.due_date, task.recurrence)
 
             _ =
-              %Task{user_id: task.user_id, assignee_id: task.assignee_id}
+              %Task{user_id: task.user_id, assignee_id: task.assignee_id, assigned_group_id: task.assigned_group_id}
               |> Task.changeset(%{
                 title: task.title,
                 description: task.description,
@@ -291,5 +300,74 @@ defmodule SmartTodo.Tasks do
     from(t in Task, where: t.user_id == ^uid and t.id == ^id, select: 1)
     |> Repo.one()
     |> Kernel.==(1)
+  end
+
+  @doc """
+  Assigns a task to a user. Only the task owner can reassign tasks.
+  """
+  def assign_task_to_user(current_scope, %Task{} = task, user_id) do
+    _uid = user_id!(current_scope)
+
+    task
+    |> Task.changeset(%{assignee_id: user_id, assigned_group_id: nil})
+    |> Repo.update()
+  end
+
+  @doc """
+  Assigns a task to a group. Only the task owner can reassign tasks.
+  """
+  def assign_task_to_group(current_scope, %Task{} = task, group_id) do
+    _uid = user_id!(current_scope)
+
+    task
+    |> Task.changeset(%{assignee_id: nil, assigned_group_id: group_id})
+    |> Repo.update()
+  end
+
+  @doc """
+  Unassigns a task (removes both user and group assignments). Only the task owner can reassign tasks.
+  """
+  def unassign_task(current_scope, %Task{} = task) do
+    _uid = user_id!(current_scope)
+
+    task
+    |> Task.changeset(%{assignee_id: nil, assigned_group_id: nil})
+    |> Repo.update()
+  end
+
+  @doc """
+  Lists tasks assigned to a specific user (either directly or through group membership).
+  """
+  def list_tasks_assigned_to_user(current_scope, user_id) do
+    _uid = user_id!(current_scope)
+
+    # Get groups that the user is a member of
+    group_ids =
+      from(gm in SmartTodo.Accounts.GroupMembership,
+        where: gm.user_id == ^user_id,
+        select: gm.group_id
+      )
+      |> Repo.all()
+
+    from(t in Task,
+      where: t.assignee_id == ^user_id or t.assigned_group_id in ^group_ids,
+      preload: [:prerequisites, :dependents, :assignee, :assigned_group]
+    )
+    |> order_by([t], asc: t.status, asc_nulls_last: t.due_date, desc: t.urgency)
+    |> Repo.all()
+  end
+
+  @doc """
+  Lists tasks assigned to a specific group.
+  """
+  def list_tasks_assigned_to_group(current_scope, group_id) do
+    _uid = user_id!(current_scope)
+
+    from(t in Task,
+      where: t.assigned_group_id == ^group_id,
+      preload: [:prerequisites, :dependents, :assignee, :assigned_group]
+    )
+    |> order_by([t], asc: t.status, asc_nulls_last: t.due_date, desc: t.urgency)
+    |> Repo.all()
   end
 end

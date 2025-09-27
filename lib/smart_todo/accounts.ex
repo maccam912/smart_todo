@@ -6,7 +6,7 @@ defmodule SmartTodo.Accounts do
   import Ecto.Query, warn: false
   alias SmartTodo.Repo
 
-  alias SmartTodo.Accounts.{User, UserPreference, UserToken}
+  alias SmartTodo.Accounts.{User, UserPreference, UserToken, Group, GroupMembership}
 
   ## Database getters
 
@@ -215,6 +215,167 @@ defmodule SmartTodo.Accounts do
     case preloaded.preference do
       %UserPreference{} = preference -> preference
       _ -> Ecto.build_assoc(preloaded, :preference)
+    end
+  end
+
+  ## Group management
+
+  @doc """
+  Gets a group by id.
+  """
+  def get_group!(id) do
+    Group
+    |> Repo.get!(id)
+    |> Repo.preload([:created_by_user, :user_members, :group_members])
+  end
+
+  @doc """
+  Gets a group by name.
+  """
+  def get_group_by_name(name) when is_binary(name) do
+    Group
+    |> Repo.get_by(name: name)
+    |> case do
+      nil -> nil
+      group -> Repo.preload(group, [:created_by_user, :user_members, :group_members])
+    end
+  end
+
+  @doc """
+  Creates a new group.
+  """
+  def create_group(%User{} = creator, attrs) do
+    %Group{}
+    |> Group.changeset(Map.put(attrs, "created_by_user_id", creator.id))
+    |> Repo.insert()
+  end
+
+  @doc """
+  Updates a group.
+  """
+  def update_group(%Group{} = group, attrs) do
+    group
+    |> Group.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Deletes a group.
+  """
+  def delete_group(%Group{} = group) do
+    Repo.delete(group)
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for tracking group changes.
+  """
+  def change_group(%Group{} = group, attrs \\ %{}) do
+    Group.changeset(group, attrs)
+  end
+
+  @doc """
+  Adds a user to a group.
+  """
+  def add_user_to_group(%Group{} = group, %User{} = user) do
+    %GroupMembership{}
+    |> GroupMembership.changeset(%{group_id: group.id, user_id: user.id})
+    |> Repo.insert()
+  end
+
+  @doc """
+  Adds a group to another group (nested groups).
+  """
+  def add_group_to_group(%Group{} = parent_group, %Group{} = member_group) do
+    if parent_group.id == member_group.id do
+      {:error, "cannot add group to itself"}
+    else
+      %GroupMembership{}
+      |> GroupMembership.changeset(%{group_id: parent_group.id, member_group_id: member_group.id})
+      |> Repo.insert()
+    end
+  end
+
+  @doc """
+  Removes a user from a group.
+  """
+  def remove_user_from_group(%Group{} = group, %User{} = user) do
+    from(gm in GroupMembership,
+      where: gm.group_id == ^group.id and gm.user_id == ^user.id
+    )
+    |> Repo.delete_all()
+
+    :ok
+  end
+
+  @doc """
+  Removes a group from another group.
+  """
+  def remove_group_from_group(%Group{} = parent_group, %Group{} = member_group) do
+    from(gm in GroupMembership,
+      where: gm.group_id == ^parent_group.id and gm.member_group_id == ^member_group.id
+    )
+    |> Repo.delete_all()
+
+    :ok
+  end
+
+  @doc """
+  Lists all groups.
+  """
+  def list_groups do
+    Group
+    |> Repo.all()
+    |> Repo.preload([:created_by_user, :user_members, :group_members])
+  end
+
+  @doc """
+  Lists groups created by a specific user.
+  """
+  def list_groups_created_by(%User{} = user) do
+    from(g in Group, where: g.created_by_user_id == ^user.id)
+    |> Repo.all()
+    |> Repo.preload([:created_by_user, :user_members, :group_members])
+  end
+
+  @doc """
+  Gets all users that are members of a group (including through nested groups).
+  This function resolves nested group memberships recursively.
+  """
+  def get_all_group_members(%Group{} = group) do
+    get_all_group_members_recursive([group.id], MapSet.new())
+  end
+
+  defp get_all_group_members_recursive(group_ids, visited_groups) do
+    # Avoid infinite loops in case of circular group references
+    new_group_ids = Enum.reject(group_ids, &MapSet.member?(visited_groups, &1))
+
+    if Enum.empty?(new_group_ids) do
+      []
+    else
+      updated_visited = Enum.reduce(new_group_ids, visited_groups, &MapSet.put(&2, &1))
+
+      # Get direct user members
+      direct_users =
+        from(gm in GroupMembership,
+          join: u in User, on: gm.user_id == u.id,
+          where: gm.group_id in ^new_group_ids and not is_nil(gm.user_id),
+          select: u
+        )
+        |> Repo.all()
+
+      # Get nested group IDs
+      nested_group_ids =
+        from(gm in GroupMembership,
+          where: gm.group_id in ^new_group_ids and not is_nil(gm.member_group_id),
+          select: gm.member_group_id
+        )
+        |> Repo.all()
+
+      # Recursively get users from nested groups
+      nested_users = get_all_group_members_recursive(nested_group_ids, updated_visited)
+
+      (direct_users ++ nested_users)
+      |> Enum.uniq_by(& &1.id)
     end
   end
 end
