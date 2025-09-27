@@ -24,7 +24,8 @@ config :smart_todo, :scopes,
 
 config :smart_todo,
   ecto_repos: [SmartTodo.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  mcp_auto_start: true
 
 # Configures the endpoint
 config :smart_todo, SmartTodoWeb.Endpoint,

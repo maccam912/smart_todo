@@ -64,6 +64,7 @@ config :smart_todo, SmartTodoWeb.Endpoint,
   ]
 
 # Enable dev routes for dashboard and mailbox
+
 config :smart_todo, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
