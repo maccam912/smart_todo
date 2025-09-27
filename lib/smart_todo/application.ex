@@ -13,6 +13,9 @@ defmodule SmartTodo.Application do
       {DNSCluster, query: Application.get_env(:smart_todo, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: SmartTodo.PubSub},
       {Task.Supervisor, name: SmartTodo.Agent.TaskSupervisor},
+      {Registry, keys: :unique, name: SmartTodo.TaskStateMachineRegistry},
+      {DynamicSupervisor, strategy: :one_for_one, name: SmartTodo.TaskStateMachineSupervisor},
+      {SmartTodo.MCPManager, auto_start: Application.get_env(:smart_todo, :mcp_auto_start, false)},
       # Start a worker by calling: SmartTodo.Worker.start_link(arg)
       # {SmartTodo.Worker, arg},
       # Start to serve requests, typically the last entry

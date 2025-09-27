@@ -52,6 +52,21 @@ defmodule SmartTodo.Tasks do
   end
 
   @doc """
+  Searches tasks by title or description.
+  """
+  def search_tasks(current_scope, query) when is_binary(query) do
+    uid = user_id!(current_scope)
+    search_term = "%#{query}%"
+
+    from(t in Task,
+      where: t.user_id == ^uid,
+      where: ilike(t.title, ^search_term) or ilike(t.description, ^search_term),
+      order_by: [desc: t.updated_at]
+    )
+    |> Repo.all()
+  end
+
+  @doc """
   Returns a single task (owned by current user) raising if not found.
   """
   def get_task!(current_scope, id) do
@@ -83,7 +98,7 @@ defmodule SmartTodo.Tasks do
     attrs =
       if not Map.has_key?(attrs, "assignee_id") and not Map.has_key?(attrs, :assignee_id) and
          not Map.has_key?(attrs, "assigned_group_id") and not Map.has_key?(attrs, :assigned_group_id) do
-        Map.put(attrs, :assignee_id, uid)
+        Map.put(attrs, "assignee_id", uid)
       else
         attrs
       end
