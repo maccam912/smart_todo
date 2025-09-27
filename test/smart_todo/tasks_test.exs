@@ -4,7 +4,7 @@ defmodule SmartTodo.TasksTest do
   import SmartTodo.AccountsFixtures
   import SmartTodo.TasksFixtures
 
-  alias SmartTodo.Tasks
+  alias SmartTodo.{Accounts, Tasks}
   alias SmartTodo.Accounts.Scope
 
   describe "create_task/2" do
@@ -85,14 +85,44 @@ defmodule SmartTodo.TasksTest do
       end
     end
 
-    test "list_tasks/2 returns only the current user's tasks" do
-      u1 = user_fixture()
-      u2 = user_fixture()
-      t1 = task_fixture(u1)
-      _t2 = task_fixture(u2)
+    test "list_tasks/2 returns owned and assigned tasks for a user" do
+      owner = user_fixture()
+      member = user_fixture()
+      outsider = user_fixture()
 
-      ids = Tasks.list_tasks(Scope.for_user(u1)) |> Enum.map(& &1.id)
-      assert ids == [t1.id]
+      scope_owner = Scope.for_user(owner)
+      scope_member = Scope.for_user(member)
+      scope_outsider = Scope.for_user(outsider)
+
+      {:ok, group} = Accounts.create_group(owner, %{"name" => "Team", "description" => "Test"})
+      {:ok, _membership} = Accounts.add_user_to_group(group, member)
+
+      owner_task = task_fixture(owner, %{title: "Owner"})
+      direct_assignment = task_fixture(owner, %{title: "Direct", assignee_id: member.id})
+      group_assignment = task_fixture(owner, %{title: "Group", assigned_group_id: group.id})
+      member_task = task_fixture(member, %{title: "Member"})
+      outsider_task = task_fixture(outsider, %{title: "Outsider"})
+
+      owner_titles =
+        Tasks.list_tasks(scope_owner)
+        |> Enum.map(& &1.title)
+        |> Enum.sort()
+
+      assert owner_titles == Enum.sort([owner_task.title, direct_assignment.title, group_assignment.title])
+
+      member_titles =
+        Tasks.list_tasks(scope_member)
+        |> Enum.map(& &1.title)
+        |> Enum.sort()
+
+      assert member_titles == Enum.sort([member_task.title, direct_assignment.title, group_assignment.title])
+
+      outsider_titles =
+        Tasks.list_tasks(scope_outsider)
+        |> Enum.map(& &1.title)
+        |> Enum.sort()
+
+      assert outsider_titles == [outsider_task.title]
     end
 
     test "list_tasks/2 returns an empty list when scope is nil" do

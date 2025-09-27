@@ -6,6 +6,7 @@ defmodule SmartTodo.Tasks do
   alias SmartTodo.Repo
 
   alias SmartTodo.Accounts.Scope
+  alias SmartTodo.Accounts.GroupMembership
   alias SmartTodo.Tasks.{Task, TaskDependency}
 
   @type scope :: %Scope{user: SmartTodo.Accounts.User.t()}
@@ -24,10 +25,12 @@ defmodule SmartTodo.Tasks do
 
   def list_tasks(current_scope, opts) do
     uid = user_id!(current_scope)
+    group_ids = group_ids_for_user(uid)
 
     base =
       from t in Task,
-        where: t.user_id == ^uid,
+        where:
+          t.user_id == ^uid or t.assignee_id == ^uid or t.assigned_group_id in ^group_ids,
         preload: [
           prerequisites: [],
           dependents: []
@@ -285,6 +288,42 @@ defmodule SmartTodo.Tasks do
   defp normalize_prereq_ids(id) when is_integer(id), do: [id]
   defp normalize_prereq_ids(id) when is_binary(id), do: [String.to_integer(id)]
 
+  defp group_ids_for_user(user_id) do
+    direct_group_ids =
+      from(gm in GroupMembership,
+        where: gm.user_id == ^user_id,
+        select: gm.group_id
+      )
+      |> Repo.all()
+      |> Enum.reject(&is_nil/1)
+
+    direct_group_ids
+    |> MapSet.new()
+    |> accumulate_parent_groups(direct_group_ids)
+    |> MapSet.to_list()
+  end
+
+  defp accumulate_parent_groups(acc, []), do: acc
+
+  defp accumulate_parent_groups(acc, group_ids) do
+    parent_ids =
+      from(gm in GroupMembership,
+        where: not is_nil(gm.member_group_id) and gm.member_group_id in ^group_ids,
+        select: gm.group_id
+      )
+      |> Repo.all()
+      |> Enum.reject(&is_nil/1)
+
+    new_ids = Enum.reject(parent_ids, &MapSet.member?(acc, &1))
+
+    case new_ids do
+      [] -> acc
+      _ ->
+        updated = Enum.reduce(new_ids, acc, &MapSet.put(&2, &1))
+        accumulate_parent_groups(updated, new_ids)
+    end
+  end
+
   def remove_dependency(current_scope, blocked_task_id, prereq_task_id) do
     _uid = user_id!(current_scope)
 
@@ -371,3 +410,7 @@ defmodule SmartTodo.Tasks do
     |> Repo.all()
   end
 end
+
+
+
+
