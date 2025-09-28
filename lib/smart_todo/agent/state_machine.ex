@@ -52,7 +52,7 @@ defmodule SmartTodo.Agent.StateMachine do
           | :complete_session
           | :record_plan
 
-  @allowed_fields ~w(title description status urgency due_date recurrence assignee_id prerequisite_ids)a
+  @allowed_fields ~w(title description notes status urgency due_date deferred_until recurrence assignee_id prerequisite_ids)a
 
   @doc """
   Starts a new session bound to the given scope.
@@ -863,9 +863,11 @@ defmodule SmartTodo.Agent.StateMachine do
         id: task.id,
         title: task.title,
         description: task.description,
+        notes: task.notes,
         status: render_enum(task.status),
         urgency: render_enum(task.urgency),
         due_date: render_date(task.due_date),
+        deferred_until: render_date(task.deferred_until),
         recurrence: render_enum(task.recurrence),
         prerequisites: Enum.map(task.prerequisites, & &1.id),
         dependents: Enum.map(task.dependents, & &1.id)
@@ -878,9 +880,11 @@ defmodule SmartTodo.Agent.StateMachine do
       id: "pending-#{ref}",
       title: Map.get(attrs, :title, "Pending Task"),
       description: Map.get(attrs, :description),
+      notes: Map.get(attrs, :notes),
       status: render_enum(Map.get(attrs, :status, :todo)),
       urgency: render_enum(Map.get(attrs, :urgency, :normal)),
       due_date: render_date(Map.get(attrs, :due_date)),
+      deferred_until: render_date(Map.get(attrs, :deferred_until)),
       recurrence: render_enum(Map.get(attrs, :recurrence, :none)),
       prerequisites: normalize_prereq_preview(Map.get(attrs, :prerequisite_ids)),
       dependents: []
@@ -896,6 +900,8 @@ defmodule SmartTodo.Agent.StateMachine do
           data
           |> maybe_put(:title, attrs)
           |> maybe_put(:description, attrs)
+          |> maybe_put(:notes, attrs)
+          |> maybe_put(:deferred_until, attrs, &render_date/1)
           |> maybe_put(:status, attrs, &render_enum/1)
           |> maybe_put(:urgency, attrs, &render_enum/1)
           |> maybe_put(:due_date, attrs, &render_date/1)

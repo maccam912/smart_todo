@@ -29,6 +29,7 @@ defmodule SmartTodo.Tasks.Task do
     field :due_date, :date
     field :recurrence, Ecto.Enum, values: @recurrence_values, default: :none
     field :deferred_until, :date
+    field :notes, :string
 
     has_many :prerequisite_links, TaskDependency, foreign_key: :blocked_task_id
     has_many :prerequisites, through: [:prerequisite_links, :prereq]
@@ -51,11 +52,13 @@ defmodule SmartTodo.Tasks.Task do
       :recurrence,
       :assignee_id,
       :assigned_group_id,
-      :deferred_until
+      :deferred_until,
+      :notes
     ])
     |> validate_required([:title])
     |> validate_length(:title, max: 200)
     |> validate_length(:description, max: 10_000)
+    |> validate_length(:notes, max: 10_000)
     |> validate_assignment()
   end
 

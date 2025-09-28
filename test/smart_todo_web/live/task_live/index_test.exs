@@ -211,4 +211,24 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
     refute has_element?(lv, "#ready-tasks div[id=\"ready_tasks-#{deferred.id}\"]")
     assert has_element?(lv, "#ready-tasks div[id=\"ready_tasks-#{active.id}\"]")
   end
+
+  test "notes appear on task cards", %{conn: conn} do
+    user = user_fixture()
+    conn = log_in_user(conn, user)
+    scope = Scope.for_user(user)
+
+    {:ok, task} =
+      Tasks.create_task(scope, %{
+        "title" => "Reach out",
+        "notes" => "Email alex@example.com"
+      })
+
+    {:ok, lv, _} = live(conn, ~p"/tasks")
+
+    assert has_element?(
+             lv,
+             "#ready-tasks div[id=\"ready_tasks-#{task.id}\"]",
+             "Email alex@example.com"
+           )
+  end
 end

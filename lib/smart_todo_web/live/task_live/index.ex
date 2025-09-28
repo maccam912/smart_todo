@@ -902,6 +902,13 @@ defmodule SmartTodoWeb.TaskLive.Index do
               />
 
               <.input
+                field={@form[:notes]}
+                type="textarea"
+                label="Notes"
+                class="textarea textarea-bordered"
+              />
+
+              <.input
                 field={@form[:deferred_until]}
                 type="date"
                 label="Defer until"
@@ -985,6 +992,13 @@ defmodule SmartTodoWeb.TaskLive.Index do
                 field={@edit_form[:description]}
                 type="textarea"
                 label="Description"
+                class="textarea textarea-bordered"
+              />
+
+              <.input
+                field={@edit_form[:notes]}
+                type="textarea"
+                label="Notes"
                 class="textarea textarea-bordered"
               />
 
@@ -1240,6 +1254,10 @@ defmodule SmartTodoWeb.TaskLive.Index do
           </div>
           <p :if={@task.description} class="text-sm text-base-content/70 mt-1">
             {@task.description}
+          </p>
+
+          <p :if={@task.notes} class="text-sm text-base-content/70 mt-1 whitespace-pre-line">
+            {@task.notes}
           </p>
 
           <div class="mt-3 space-y-3 text-sm text-base-content/70">

@@ -19,6 +19,19 @@ defmodule SmartTodo.TasksTest do
       assert task.title == "Write tests"
     end
 
+    test "stores optional notes" do
+      user = user_fixture()
+      scope = Scope.for_user(user)
+
+      {:ok, task} =
+        Tasks.create_task(scope, %{
+          "title" => "Call client",
+          "notes" => "Reach out at 555-1234"
+        })
+
+      assert task.notes == "Reach out at 555-1234"
+    end
+
     test "accepts deferred_until date" do
       user = user_fixture()
       scope = Scope.for_user(user)
@@ -51,8 +64,14 @@ defmodule SmartTodo.TasksTest do
       scope = Scope.for_user(user)
       task = task_fixture(user, %{title: "Initial"})
 
-      assert {:ok, updated} = Tasks.update_task(scope, task, %{"title" => "Revised"})
+      assert {:ok, updated} =
+               Tasks.update_task(scope, task, %{
+                 "title" => "Revised",
+                 "notes" => "Discuss blockers"
+               })
+
       assert updated.title == "Revised"
+      assert updated.notes == "Discuss blockers"
     end
 
     test "replaces prerequisites when ids provided" do
