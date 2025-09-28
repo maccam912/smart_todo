@@ -10,7 +10,8 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
 
   defmodule LlmRunnerStub do
     def run(scope, prompt, test_pid) do
-      {:ok, _} = SmartTodo.Tasks.create_task(scope, %{title: prompt})
+      truncated_title = String.slice(prompt, 0, 200)
+      {:ok, _} = SmartTodo.Tasks.create_task(scope, %{title: truncated_title})
 
       send(test_pid, {:llm_stub_called, prompt})
 
@@ -210,6 +211,42 @@ defmodule SmartTodoWeb.TaskLive.IndexTest do
 
     refute has_element?(lv, "#ready-tasks div[id=\"ready_tasks-#{deferred.id}\"]")
     assert has_element?(lv, "#ready-tasks div[id=\"ready_tasks-#{active.id}\"]")
+  end
+
+  test "break down automation replaces an edited task", %{conn: conn} do
+    user = user_fixture()
+    conn = log_in_user(conn, user)
+    scope = Scope.for_user(user)
+
+    {:ok, task} =
+      Tasks.create_task(scope, %{
+        "title" => "Organize birthday party",
+        "description" => "Book venue and invite guests",
+        "notes" => "Initial brainstorming"
+      })
+
+    Application.put_env(:smart_todo, :llm_runner, {__MODULE__.LlmRunnerStub, self()})
+    on_exit(fn -> Application.delete_env(:smart_todo, :llm_runner) end)
+
+    {:ok, lv, _} = live(conn, ~p"/tasks")
+
+    _ =
+      lv
+      |> element("button[phx-click=\"edit_task\"][phx-value-id=\"#{task.id}\"]")
+      |> render_click()
+
+    html =
+      lv
+      |> element("button[phx-click=\"break_down_task\"][phx-value-id=\"#{task.id}\"]")
+      |> render_click()
+
+    assert html =~ "Breaking the task into smaller steps"
+
+    assert_receive {:llm_stub_called, prompt}
+    assert prompt =~ "existing:#{task.id}"
+    assert prompt =~ "Single step in the task #{task.title}"
+
+    _ = render(lv)
   end
 
   test "notes appear on task cards", %{conn: conn} do

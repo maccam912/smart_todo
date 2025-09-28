@@ -278,6 +278,40 @@ defmodule SmartTodoWeb.TaskLive.Index do
   end
 
   @impl true
+  def handle_event("break_down_task", %{"id" => id}, socket) do
+    cond do
+      socket.assigns.automation_status == :running ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Automation is already running. Please wait.")}
+
+      true ->
+        task =
+          socket.assigns.current_scope
+          |> Tasks.get_task!(String.to_integer(id))
+
+        case start_breakdown(socket, task) do
+          {:ok, ref} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Breaking the task into smaller steps...")
+             |> assign(:automation_status, :running)
+             |> assign(:automation_job_ref, ref)
+             |> assign(:editing_task_id, nil)
+             |> assign(:edit_form, nil)
+             |> assign(:edit_selected_prereq_ids, [])
+             |> assign(:edit_assignment_selection, nil)
+             |> assign(:edit_defer_option_selection, nil)}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, start_error_message(reason))}
+        end
+    end
+  end
+
+  @impl true
   def handle_event("trash_task", %{"id" => id}, socket) do
     task_id = String.to_integer(id)
 
@@ -392,6 +426,11 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
   defp quick_form_with(value) do
     to_form(%{"title" => value}, as: "quick_task")
+  end
+
+  defp start_breakdown(socket, task) do
+    prompt = build_breakdown_prompt(task)
+    start_automation(socket, prompt)
   end
 
   defp start_automation(socket, prompt) do
@@ -538,6 +577,74 @@ defmodule SmartTodoWeb.TaskLive.Index do
       {"Clear deferral", "clear"}
     ]
   end
+
+  defp build_breakdown_prompt(task) do
+    notes_prefix = "Single step in the task #{task.title}: "
+    prerequisites = Enum.map(task.prerequisites, & &1.id)
+    dependents = Enum.map(task.dependents, & &1.id)
+
+    [
+      "You are operating the SmartTodo task state machine.",
+      "The user wants to break the existing task into a sequenced set of smaller tasks.",
+      "Existing task reference: existing:#{task.id}",
+      "",
+      "Task context:",
+      format_line("Title", task.title),
+      format_line("Description", task.description),
+      format_line("Notes", task.notes),
+      format_line("Due date", task.due_date),
+      format_line("Deferred until", task.deferred_until),
+      format_line("Urgency", task.urgency),
+      format_line("Recurrence", task.recurrence),
+      format_assignment(task),
+      format_id_list("Current prerequisites", prerequisites),
+      format_id_list("Direct dependents", dependents),
+      "",
+      "Requirements:",
+      "1. Create at least two new tasks that, in order, accomplish the same overall outcome as the original task.",
+      "2. Each new task must include notes beginning with \"#{notes_prefix}\" followed by a short step-specific explanation.",
+      "3. Preserve the original assignment, urgency, due date, deferred_until, and recurrence values on each new task.",
+      "4. Apply the original prerequisites (if any) to the first new task. For each subsequent new task, set the immediately previous new task as its prerequisite so the steps run in sequence.",
+      "5. After creating the replacements, update every dependent listed above to depend on the final new task instead of the original.",
+      "6. Delete the original task once replacements are staged.",
+      "7. Review your staged operations and finish with complete_session to persist the changes.",
+      "",
+      "When issuing commands, reference existing tasks as existing:<id> and pending tasks as pending:<ref>."
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp format_line(label, value) do
+    "- #{label}: #{describe_value(value)}"
+  end
+
+  defp format_assignment(%Task{assignee_id: assignee_id, assigned_group_id: group_id}) do
+    cond do
+      assignee_id -> "- Assignment: user_id #{assignee_id}"
+      group_id -> "- Assignment: group_id #{group_id}"
+      true -> "- Assignment: (none)"
+    end
+  end
+
+  defp format_id_list(label, []), do: "- #{label}: (none)"
+
+  defp format_id_list(label, ids) do
+    formatted = ids |> Enum.map(&"existing:#{&1}") |> Enum.join(", ")
+    "- #{label}: #{formatted}"
+  end
+
+  defp describe_value(nil), do: "(none)"
+
+  defp describe_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "(none)"
+      trimmed -> trimmed
+    end
+  end
+
+  defp describe_value(%Date{} = date), do: Date.to_iso8601(date)
+  defp describe_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp describe_value(value), do: inspect(value)
 
   defp assignment_value_for(%Task{assignee_id: assignee_id, assigned_group_id: group_id}) do
     cond do
@@ -1042,6 +1149,15 @@ defmodule SmartTodoWeb.TaskLive.Index do
             <div class="mt-4 flex justify-end gap-2">
               <button type="button" class="btn btn-ghost" phx-click="cancel_edit">
                 <.icon name="hero-x-mark" class="w-5 h-5 mr-1" /> Cancel
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                phx-click="break_down_task"
+                phx-value-id={@editing_task_id}
+                disabled={@automation_status == :running}
+              >
+                Break it down into smaller steps
               </button>
               <button class="btn btn-primary" type="submit">
                 <.icon name="hero-check" class="w-5 h-5 mr-1" /> Save changes
