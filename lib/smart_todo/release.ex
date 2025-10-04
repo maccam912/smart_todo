@@ -9,7 +9,24 @@ defmodule SmartTodo.Release do
     load_app()
 
     for repo <- repos() do
+      create_db_if_not_exists(repo)
       {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :up, all: true))
+    end
+  end
+
+  def create_db_if_not_exists(repo) do
+    case repo.__adapter__().storage_up(repo.config()) do
+      :ok ->
+        IO.puts("Database created successfully")
+
+      {:error, :already_up} ->
+        IO.puts("Database already exists")
+
+      {:error, term} when is_binary(term) ->
+        IO.puts("Error creating database: #{term}")
+
+      {:error, term} ->
+        IO.puts("Error creating database: #{inspect(term)}")
     end
   end
 
