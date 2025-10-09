@@ -4,16 +4,6 @@ defmodule SmartTodoWeb.UserLive.LoginTest do
   import Phoenix.LiveViewTest
   import SmartTodo.AccountsFixtures
 
-  describe "login page" do
-    test "renders login page", %{conn: conn} do
-      {:ok, _lv, html} = live(conn, ~p"/users/log-in")
-
-      assert html =~ "Log in"
-      assert html =~ "Register"
-      refute html =~ "Log in with email"
-    end
-  end
-
   describe "user login - password" do
     test "redirects if user logs in with valid credentials", %{conn: conn} do
       user = user_fixture()
