@@ -15,6 +15,11 @@ defmodule SmartTodoWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug OpenApiSpex.Plug.PutApiSpec, module: SmartTodoWeb.ApiSpec
+  end
+
+  pipeline :api_auth do
+    plug SmartTodoWeb.ApiAuth
   end
 
   scope "/", SmartTodoWeb do
@@ -23,10 +28,28 @@ defmodule SmartTodoWeb.Router do
     get "/", RootRedirectController, :index
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", SmartTodoWeb do
-  #   pipe_through :api
-  # end
+  # API routes
+  scope "/api" do
+    pipe_through :api
+
+    # OpenAPI spec and Swagger UI (no auth required for documentation)
+    get "/openapi", OpenApiSpex.Plug.RenderSpec, []
+  end
+
+  scope "/api", SmartTodoWeb.Api, as: :api do
+    pipe_through [:api, :api_auth]
+
+    resources "/tasks", TaskController, except: [:new, :edit] do
+      post "/complete", TaskController, :complete
+    end
+  end
+
+  # Swagger UI (available at /swaggerui)
+  scope "/" do
+    pipe_through :browser
+
+    get "/swaggerui", OpenApiSpex.Plug.SwaggerUI, path: "/api/openapi"
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:smart_todo, :dev_routes) do

@@ -6,7 +6,14 @@ defmodule SmartTodo.Accounts do
   import Ecto.Query, warn: false
   alias SmartTodo.Repo
 
-  alias SmartTodo.Accounts.{User, UserPreference, UserToken, Group, GroupMembership, UserAccessToken}
+  alias SmartTodo.Accounts.{
+    User,
+    UserPreference,
+    UserToken,
+    Group,
+    GroupMembership,
+    UserAccessToken
+  }
 
   ## Database getters
 
@@ -237,6 +244,29 @@ defmodule SmartTodo.Accounts do
     end
   end
 
+  @doc """
+  Verifies an API access token and returns the associated user.
+
+  Takes the plaintext token, hashes it, and looks it up in the database.
+  Returns the user if the token is valid, otherwise returns nil.
+  """
+  def get_user_by_access_token(token) when is_binary(token) do
+    hash = :crypto.hash(:sha256, token)
+
+    query =
+      from(t in UserAccessToken,
+        where: t.token_hash == ^hash,
+        join: u in User,
+        on: t.user_id == u.id,
+        select: u
+      )
+
+    case Repo.one(query) do
+      nil -> nil
+      user -> preload_user_preference(user)
+    end
+  end
+
   ## Token helper
 
   defp update_user_and_delete_all_tokens(changeset) do
@@ -455,7 +485,8 @@ defmodule SmartTodo.Accounts do
       # Get direct user members
       direct_users =
         from(gm in GroupMembership,
-          join: u in User, on: gm.user_id == u.id,
+          join: u in User,
+          on: gm.user_id == u.id,
           where: gm.group_id in ^new_group_ids and not is_nil(gm.user_id),
           select: u
         )

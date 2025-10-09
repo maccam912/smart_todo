@@ -96,7 +96,7 @@ defmodule SmartTodoWeb.UserLive.Settings do
         <div :if={@last_token} class="alert alert-info shadow" role="status">
           <div>
             <p class="font-semibold">
-              <%= if @last_token.action == :rotated, do: "Token rotated", else: "New token generated" %>
+              {if @last_token.action == :rotated, do: "Token rotated", else: "New token generated"}
             </p>
             <p class="mt-1 text-sm text-base-content/80">
               Copy this token now. It won't be shown again.

@@ -52,7 +52,9 @@ defmodule SmartTodoWeb.GroupLive.Index do
     case Accounts.create_group(socket.assigns.current_scope.user, params) do
       {:ok, _group} ->
         groups = Accounts.list_groups()
-        user_groups = groups |> Enum.filter(&(&1.created_by_user_id == socket.assigns.current_scope.user.id))
+
+        user_groups =
+          groups |> Enum.filter(&(&1.created_by_user_id == socket.assigns.current_scope.user.id))
 
         {:noreply,
          socket
@@ -198,7 +200,10 @@ defmodule SmartTodoWeb.GroupLive.Index do
       case Accounts.delete_group(group) do
         {:ok, _group} ->
           groups = Accounts.list_groups()
-          user_groups = groups |> Enum.filter(&(&1.created_by_user_id == socket.assigns.current_scope.user.id))
+
+          user_groups =
+            groups
+            |> Enum.filter(&(&1.created_by_user_id == socket.assigns.current_scope.user.id))
 
           {:noreply,
            socket
@@ -238,14 +243,24 @@ defmodule SmartTodoWeb.GroupLive.Index do
           <.icon name="hero-plus" class="w-5 h-5 mr-1" /> Create Group
         </button>
       </div>
-
-      <!-- Create Group Form -->
+      
+    <!-- Create Group Form -->
       <div :if={@show_create_form?} class="card bg-base-200 border border-base-300 mt-6">
         <div class="card-body">
           <h2 class="card-title">Create New Group</h2>
-          <.form for={@form} id="create-group-form" phx-change="validate_group" phx-submit="create_group">
+          <.form
+            for={@form}
+            id="create-group-form"
+            phx-change="validate_group"
+            phx-submit="create_group"
+          >
             <div class="grid grid-cols-1 gap-4">
-              <.input field={@form[:name]} label="Group Name" placeholder="e.g. Development Team" required />
+              <.input
+                field={@form[:name]}
+                label="Group Name"
+                placeholder="e.g. Development Team"
+                required
+              />
               <.input
                 field={@form[:description]}
                 type="textarea"
@@ -265,8 +280,8 @@ defmodule SmartTodoWeb.GroupLive.Index do
           </.form>
         </div>
       </div>
-
-      <!-- Groups Overview -->
+      
+    <!-- Groups Overview -->
       <div class="mt-8 space-y-8">
         <!-- My Groups -->
         <section>
@@ -283,8 +298,8 @@ defmodule SmartTodoWeb.GroupLive.Index do
             />
           </div>
         </section>
-
-        <!-- Groups I'm a Member Of -->
+        
+    <!-- Groups I'm a Member Of -->
         <section>
           <h2 class="text-xl font-semibold mb-4">Groups I'm a Member Of</h2>
           <p :if={Enum.empty?(@member_groups)} class="text-sm text-base-content/70">
@@ -300,14 +315,17 @@ defmodule SmartTodoWeb.GroupLive.Index do
           </div>
         </section>
       </div>
-
-      <!-- Group Details Modal -->
+      
+    <!-- Group Details Modal -->
       <div
         :if={@selected_group}
         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
         phx-click="close_group_details"
       >
-        <div class="bg-base-100 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" phx-click="do_nothing">
+        <div
+          class="bg-base-100 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+          phx-click="do_nothing"
+        >
           <!-- Modal content - prevent click propagation -->
           <div class="p-6">
             <div class="flex items-center justify-between mb-6">
@@ -324,12 +342,15 @@ defmodule SmartTodoWeb.GroupLive.Index do
                 <.icon name="hero-x-mark" class="w-5 h-5" />
               </button>
             </div>
-
-            <!-- Add Members Section (only for group owners) -->
-            <div :if={@selected_group.created_by_user_id == @current_scope.user.id} class="mb-6 space-y-4">
+            
+    <!-- Add Members Section (only for group owners) -->
+            <div
+              :if={@selected_group.created_by_user_id == @current_scope.user.id}
+              class="mb-6 space-y-4"
+            >
               <h4 class="font-medium">Add Members</h4>
-
-              <!-- Add User -->
+              
+    <!-- Add User -->
               <!-- Add User Form -->
               <form phx-submit="add_user_to_group">
                 <div class="flex gap-2">
@@ -345,8 +366,8 @@ defmodule SmartTodoWeb.GroupLive.Index do
                   </button>
                 </div>
               </form>
-
-              <!-- Add Group Form -->
+              
+    <!-- Add Group Form -->
               <form phx-submit="add_group_to_group">
                 <div class="flex gap-2">
                   <input
@@ -362,12 +383,14 @@ defmodule SmartTodoWeb.GroupLive.Index do
                 </div>
               </form>
             </div>
-
-            <!-- Members List -->
+            
+    <!-- Members List -->
             <div class="space-y-4">
               <!-- User Members -->
               <div :if={!Enum.empty?(@selected_group.user_members)}>
-                <h4 class="font-medium mb-2">User Members ({length(@selected_group.user_members)})</h4>
+                <h4 class="font-medium mb-2">
+                  User Members ({length(@selected_group.user_members)})
+                </h4>
                 <div class="space-y-2">
                   <div
                     :for={user <- @selected_group.user_members}
@@ -388,10 +411,12 @@ defmodule SmartTodoWeb.GroupLive.Index do
                   </div>
                 </div>
               </div>
-
-              <!-- Group Members -->
+              
+    <!-- Group Members -->
               <div :if={!Enum.empty?(@selected_group.group_members)}>
-                <h4 class="font-medium mb-2">Group Members ({length(@selected_group.group_members)})</h4>
+                <h4 class="font-medium mb-2">
+                  Group Members ({length(@selected_group.group_members)})
+                </h4>
                 <div class="space-y-2">
                   <div
                     :for={group <- @selected_group.group_members}
@@ -399,7 +424,9 @@ defmodule SmartTodoWeb.GroupLive.Index do
                   >
                     <div>
                       <span class="font-medium">{group.name}</span>
-                      <p :if={group.description} class="text-sm text-base-content/70">{group.description}</p>
+                      <p :if={group.description} class="text-sm text-base-content/70">
+                        {group.description}
+                      </p>
                     </div>
                     <button
                       :if={@selected_group.created_by_user_id == @current_scope.user.id}
@@ -414,7 +441,13 @@ defmodule SmartTodoWeb.GroupLive.Index do
                 </div>
               </div>
 
-              <p :if={Enum.empty?(@selected_group.user_members) and Enum.empty?(@selected_group.group_members)} class="text-sm text-base-content/70">
+              <p
+                :if={
+                  Enum.empty?(@selected_group.user_members) and
+                    Enum.empty?(@selected_group.group_members)
+                }
+                class="text-sm text-base-content/70"
+              >
                 This group has no members yet.
               </p>
             </div>
@@ -431,9 +464,11 @@ defmodule SmartTodoWeb.GroupLive.Index do
 
   defp group_card(assigns) do
     ~H"""
-    <div class="card bg-base-200 border border-base-300 hover:border-primary/60 transition-colors cursor-pointer"
-         phx-click="select_group"
-         phx-value-group-id={@group.id}>
+    <div
+      class="card bg-base-200 border border-base-300 hover:border-primary/60 transition-colors cursor-pointer"
+      phx-click="select_group"
+      phx-value-group-id={@group.id}
+    >
       <div class="card-body">
         <div class="flex items-start justify-between">
           <div class="flex-1">
