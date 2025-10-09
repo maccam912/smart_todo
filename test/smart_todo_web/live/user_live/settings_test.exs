@@ -17,6 +17,9 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
       assert html =~ "Save Password"
       assert html =~ "Assistant Preferences"
       assert html =~ "Save Preferences"
+      assert html =~ "API Tokens"
+      assert html =~ "Generate token"
+      assert html =~ "No tokens yet."
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
@@ -151,4 +154,57 @@ defmodule SmartTodoWeb.UserLive.SettingsTest do
   end
 
   # Email confirmation flow removed
+
+  describe "API tokens" do
+    setup %{conn: conn} do
+      user = user_fixture()
+      %{conn: log_in_user(conn, user), user: user}
+    end
+
+    test "generates a token and shows it once", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      html =
+        lv
+        |> element("button[phx-click=\"generate_token\"]")
+        |> render_click()
+
+      assert html =~ "New token generated"
+      assert html =~ "Copy this token now"
+
+      [%{id: token_id}] = Accounts.list_user_access_tokens(user)
+      assert has_element?(lv, "#token-#{token_id}")
+    end
+
+    test "rotates an existing token", %{conn: conn, user: user} do
+      %{access_token: token} = user_access_token_fixture(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      html =
+        lv
+        |> element("#token-#{token.id} button[phx-click=\"rotate_token\"]")
+        |> render_click()
+
+      assert html =~ "Token rotated"
+
+      [updated] = Accounts.list_user_access_tokens(user)
+      refute updated.token_prefix == token.token_prefix
+    end
+
+    test "deletes a token", %{conn: conn, user: user} do
+      %{access_token: token} = user_access_token_fixture(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      html =
+        lv
+        |> element("#token-#{token.id} button[phx-click=\"delete_token\"]")
+        |> render_click()
+
+      assert html =~ "Token deleted"
+      assert Accounts.list_user_access_tokens(user) == []
+      refute has_element?(lv, "#token-#{token.id}")
+    end
+  end
 end

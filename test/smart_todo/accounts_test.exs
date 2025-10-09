@@ -4,7 +4,7 @@ defmodule SmartTodo.AccountsTest do
   alias SmartTodo.Accounts
 
   import SmartTodo.AccountsFixtures
-  alias SmartTodo.Accounts.{User, UserToken}
+  alias SmartTodo.Accounts.{User, UserToken, UserAccessToken}
 
   # Email-based lookup removed
 
@@ -239,6 +239,66 @@ defmodule SmartTodo.AccountsTest do
   end
 
   # Login instructions via email removed
+
+  describe "user access tokens" do
+    test "list_user_access_tokens/1 returns tokens for the user" do
+      user = user_fixture()
+      %{access_token: token} = user_access_token_fixture(user)
+      _other = user_access_token_fixture()
+
+      assert [returned] = Accounts.list_user_access_tokens(user)
+      assert returned.id == token.id
+    end
+
+    test "create_user_access_token/1 stores hashed tokens" do
+      user = user_fixture()
+
+      {:ok, {plaintext, access_token}} = Accounts.create_user_access_token(user)
+
+      assert access_token.user_id == user.id
+      assert access_token.token_prefix == String.slice(plaintext, 0, 8)
+
+      stored = Repo.get!(UserAccessToken, access_token.id)
+      assert stored.token_hash == :crypto.hash(:sha256, plaintext)
+    end
+
+    test "rotate_user_access_token/2 replaces the stored hash" do
+      user = user_fixture()
+      {:ok, {first_plain, access_token}} = Accounts.create_user_access_token(user)
+
+      {:ok, {rotated_plain, updated_token}} =
+        Accounts.rotate_user_access_token(user, access_token.id)
+
+      refute rotated_plain == first_plain
+      assert updated_token.id == access_token.id
+      assert updated_token.token_prefix == String.slice(rotated_plain, 0, 8)
+
+      stored = Repo.get!(UserAccessToken, access_token.id)
+      assert stored.token_hash == :crypto.hash(:sha256, rotated_plain)
+    end
+
+    test "rotate_user_access_token/2 rejects non-owned tokens" do
+      user = user_fixture()
+      %{access_token: other_token} = user_access_token_fixture()
+
+      assert {:error, :not_found} = Accounts.rotate_user_access_token(user, other_token.id)
+    end
+
+    test "delete_user_access_token/2 removes the token" do
+      user = user_fixture()
+      %{access_token: token} = user_access_token_fixture(user)
+
+      assert :ok = Accounts.delete_user_access_token(user, token.id)
+      refute Repo.get(UserAccessToken, token.id)
+    end
+
+    test "delete_user_access_token/2 rejects tokens owned by others" do
+      user = user_fixture()
+      %{access_token: other_token} = user_access_token_fixture()
+
+      assert {:error, :not_found} = Accounts.delete_user_access_token(user, other_token.id)
+    end
+  end
 
   describe "inspect/2 for the User module" do
     test "does not include password" do
