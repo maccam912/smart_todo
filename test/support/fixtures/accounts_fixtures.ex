@@ -72,4 +72,10 @@ defmodule SmartTodo.AccountsFixtures do
       set: [inserted_at: dt, authenticated_at: dt]
     )
   end
+
+  def user_access_token_fixture(user \\ user_fixture()) do
+    {:ok, {token, access_token}} = Accounts.create_user_access_token(user)
+
+    %{token: token, access_token: access_token}
+  end
 end

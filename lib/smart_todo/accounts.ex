@@ -6,7 +6,7 @@ defmodule SmartTodo.Accounts do
   import Ecto.Query, warn: false
   alias SmartTodo.Repo
 
-  alias SmartTodo.Accounts.{User, UserPreference, UserToken, Group, GroupMembership}
+  alias SmartTodo.Accounts.{User, UserPreference, UserToken, Group, GroupMembership, UserAccessToken}
 
   ## Database getters
 
@@ -153,6 +153,90 @@ defmodule SmartTodo.Accounts do
     :ok
   end
 
+  ## API tokens
+
+  @doc """
+  Lists the personal access tokens owned by the given user, sorted newest first.
+  """
+  def list_user_access_tokens(%User{id: user_id}) do
+    UserAccessToken
+    |> where(user_id: ^user_id)
+    |> order_by([t], desc: t.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Generates and persists a new personal access token for the user.
+
+  The plaintext token is returned alongside the persisted record so it can be
+  shown to the caller once.
+  """
+  def create_user_access_token(%User{} = user) do
+    {plaintext, attrs} = build_access_token_attrs()
+
+    user
+    |> Ecto.build_assoc(:access_tokens)
+    |> UserAccessToken.changeset(attrs)
+    |> Repo.insert()
+    |> case do
+      {:ok, access_token} -> {:ok, {plaintext, access_token}}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  @doc """
+  Rotates (regenerates) the secret for the given token belonging to the user.
+
+  Returns the fresh plaintext token if successful.
+  """
+  def rotate_user_access_token(%User{} = user, token_id) when is_integer(token_id) do
+    case Repo.get_by(UserAccessToken, id: token_id, user_id: user.id) do
+      %UserAccessToken{} = token ->
+        {plaintext, attrs} = build_access_token_attrs()
+
+        token
+        |> UserAccessToken.changeset(attrs)
+        |> Repo.update()
+        |> case do
+          {:ok, updated_token} -> {:ok, {plaintext, updated_token}}
+          {:error, changeset} -> {:error, changeset}
+        end
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  def rotate_user_access_token(%User{} = user, token_id) when is_binary(token_id) do
+    case Integer.parse(token_id) do
+      {id, ""} -> rotate_user_access_token(user, id)
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Deletes the given personal access token owned by the user.
+  """
+  def delete_user_access_token(%User{} = user, token_id) when is_integer(token_id) do
+    case Repo.get_by(UserAccessToken, id: token_id, user_id: user.id) do
+      %UserAccessToken{} = token ->
+        case Repo.delete(token) do
+          {:ok, _} -> :ok
+          {:error, _} = error -> error
+        end
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  def delete_user_access_token(%User{} = user, token_id) when is_binary(token_id) do
+    case Integer.parse(token_id) do
+      {id, ""} -> delete_user_access_token(user, id)
+      _ -> {:error, :not_found}
+    end
+  end
+
   ## Token helper
 
   defp update_user_and_delete_all_tokens(changeset) do
@@ -165,6 +249,20 @@ defmodule SmartTodo.Accounts do
         {:ok, {user, tokens_to_expire}}
       end
     end)
+  end
+
+  @api_token_size 32
+  @token_prefix_length 8
+
+  defp build_access_token_attrs do
+    plaintext =
+      :crypto.strong_rand_bytes(@api_token_size)
+      |> Base.url_encode64(padding: false)
+
+    hash = :crypto.hash(:sha256, plaintext)
+    prefix = String.slice(plaintext, 0, @token_prefix_length)
+
+    {plaintext, %{token_hash: hash, token_prefix: prefix}}
   end
 
   ## User preferences

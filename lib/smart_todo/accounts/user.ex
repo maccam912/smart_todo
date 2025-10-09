@@ -8,6 +8,7 @@ defmodule SmartTodo.Accounts.User do
     field :hashed_password, :string, redact: true
     field :authenticated_at, :utc_datetime, virtual: true
     has_one :preference, SmartTodo.Accounts.UserPreference
+    has_many :access_tokens, SmartTodo.Accounts.UserAccessToken
 
     timestamps(type: :utc_datetime)
   end
