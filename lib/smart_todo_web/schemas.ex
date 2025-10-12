@@ -242,4 +242,93 @@ defmodule SmartTodoWeb.Schemas do
       }
     })
   end
+
+  defmodule NaturalLanguageRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "NaturalLanguageRequest",
+      description: "Request to process natural language text and perform task operations",
+      type: :object,
+      properties: %{
+        text: %Schema{
+          type: :string,
+          description: "Natural language text describing the task operations to perform",
+          minLength: 1,
+          maxLength: 5000
+        }
+      },
+      required: [:text],
+      example: %{
+        text: "Create a task to review the quarterly report with high urgency and due date next Friday"
+      }
+    })
+  end
+
+  defmodule ActionPerformed do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ActionPerformed",
+      description: "An action that was performed by the natural language processor",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, description: "Name of the command that was executed"},
+        params: %Schema{
+          type: :object,
+          description: "Parameters that were passed to the command",
+          additionalProperties: true
+        }
+      },
+      example: %{
+        name: "create_task",
+        params: %{
+          title: "Review quarterly report",
+          urgency: "high",
+          due_date: "2025-10-19"
+        }
+      }
+    })
+  end
+
+  defmodule NaturalLanguageResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "NaturalLanguageResponse",
+      description: "Response from processing natural language text",
+      type: :object,
+      properties: %{
+        actions: %Schema{
+          type: :array,
+          description: "List of actions that were performed",
+          items: ActionPerformed
+        },
+        message: %Schema{
+          type: :string,
+          description: "Summary message of the operation"
+        }
+      },
+      example: %{
+        actions: [
+          %{
+            name: "create_task",
+            params: %{
+              title: "Review quarterly report",
+              urgency: "high",
+              due_date: "2025-10-19"
+            }
+          },
+          %{
+            name: "complete_session",
+            params: %{}
+          }
+        ],
+        message: "Successfully processed your request and created 1 task"
+      }
+    })
+  end
 end

@@ -3,8 +3,11 @@ defmodule SmartTodoWeb.Api.TaskController do
   use OpenApiSpex.ControllerSpecs
 
   alias SmartTodo.Tasks
+  alias SmartTodo.Agent.LlmSession
   alias SmartTodoWeb.Schemas
   alias OpenApiSpex.Schema
+
+  require Logger
 
   action_fallback SmartTodoWeb.FallbackController
 
@@ -153,4 +156,63 @@ defmodule SmartTodoWeb.Api.TaskController do
         {:error, changeset}
     end
   end
+
+  operation :process_natural_language,
+    summary: "Process natural language text",
+    description: """
+    Processes natural language text to perform task operations using an AI assistant.
+    The AI will interpret your request and execute the appropriate commands to create,
+    update, complete, or delete tasks. Returns a list of all actions that were performed.
+
+    Examples:
+    - "Create a task to review the quarterly report with high urgency"
+    - "Mark the task 'Buy groceries' as complete"
+    - "Break down the task 'Launch new website' into smaller steps"
+    """,
+    request_body: {"Natural language request", "application/json", Schemas.NaturalLanguageRequest, required: true},
+    responses: [
+      ok: {"Natural language processed successfully", "application/json", Schemas.NaturalLanguageResponse},
+      unprocessable_entity: {"Processing error", "application/json", Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
+    ]
+
+  def process_natural_language(conn, %{"text" => text}) when is_binary(text) do
+    current_scope = conn.assigns[:current_scope]
+
+    case String.trim(text) do
+      "" ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: %{text: ["cannot be blank"]}})
+
+      trimmed_text ->
+        case LlmSession.run(current_scope, trimmed_text) do
+          {:ok, result} ->
+            actions = Map.get(result, :executed, [])
+            render(conn, :natural_language, actions: actions)
+
+          {:error, reason, _context} ->
+            Logger.error("Natural language processing failed: #{inspect(reason)}")
+
+            error_message = format_llm_error(reason)
+
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{errors: %{processing: [error_message]}})
+        end
+    end
+  end
+
+  def process_natural_language(conn, _params) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{errors: %{text: ["is required"]}})
+  end
+
+  defp format_llm_error(:max_rounds), do: "Processing stopped after reaching maximum rounds"
+  defp format_llm_error(:max_errors), do: "Processing stopped due to too many errors"
+  defp format_llm_error({:http_error, status, _}), do: "HTTP error: #{status}"
+  defp format_llm_error({:unsupported_command, name}), do: "Unsupported command: #{name}"
+  defp format_llm_error(reason) when is_atom(reason), do: Phoenix.Naming.humanize(reason)
+  defp format_llm_error(reason), do: "Processing failed: #{inspect(reason)}"
 end

@@ -39,6 +39,8 @@ defmodule SmartTodoWeb.Router do
   scope "/api", SmartTodoWeb.Api, as: :api do
     pipe_through [:api, :api_auth]
 
+    post "/tasks/process", TaskController, :process_natural_language
+
     resources "/tasks", TaskController, except: [:new, :edit] do
       post "/complete", TaskController, :complete
     end
