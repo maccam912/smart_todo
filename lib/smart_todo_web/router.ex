@@ -28,6 +28,13 @@ defmodule SmartTodoWeb.Router do
     get "/", RootRedirectController, :index
   end
 
+  # Health check endpoint (no auth, no database)
+  scope "/api" do
+    pipe_through :api
+
+    get "/health", SmartTodoWeb.HealthController, :index
+  end
+
   # API routes
   scope "/api" do
     pipe_through :api
