@@ -11,12 +11,11 @@ defmodule SmartTodoWeb.Api.TaskController do
 
   action_fallback SmartTodoWeb.FallbackController
 
-  tags(["Tasks"])
+  tags ["Tasks"]
 
-  operation(:index,
+  operation :index,
     summary: "List tasks",
-    description:
-      "Lists all tasks accessible by the authenticated user (owned, assigned, or group-assigned tasks)",
+    description: "Lists all tasks accessible by the authenticated user (owned, assigned, or group-assigned tasks)",
     parameters: [
       status: [
         in: :query,
@@ -29,7 +28,6 @@ defmodule SmartTodoWeb.Api.TaskController do
       ok: {"Tasks retrieved successfully", "application/json", Schemas.TasksResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
     ]
-  )
 
   def index(conn, params) do
     current_scope = conn.assigns[:current_scope]
@@ -38,10 +36,9 @@ defmodule SmartTodoWeb.Api.TaskController do
     render(conn, :index, tasks: tasks)
   end
 
-  operation(:show,
+  operation :show,
     summary: "Get a task",
-    description:
-      "Retrieves a single task by ID. The task must be owned by or assigned to the authenticated user.",
+    description: "Retrieves a single task by ID. The task must be owned by or assigned to the authenticated user.",
     parameters: [
       id: [in: :path, description: "Task ID", type: :integer, example: 1]
     ],
@@ -50,7 +47,6 @@ defmodule SmartTodoWeb.Api.TaskController do
       not_found: {"Task not found", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
     ]
-  )
 
   def show(conn, %{"id" => id}) do
     current_scope = conn.assigns[:current_scope]
@@ -58,17 +54,15 @@ defmodule SmartTodoWeb.Api.TaskController do
     render(conn, :show, task: task)
   end
 
-  operation(:create,
+  operation :create,
     summary: "Create a task",
-    description:
-      "Creates a new task for the authenticated user. If neither assignee_id nor assigned_group_id is specified, the task is assigned to the creator by default.",
+    description: "Creates a new task for the authenticated user. If neither assignee_id nor assigned_group_id is specified, the task is assigned to the creator by default.",
     request_body: {"Task parameters", "application/json", Schemas.TaskRequest, required: true},
     responses: [
       created: {"Task created successfully", "application/json", Schemas.TaskResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
     ]
-  )
 
   def create(conn, %{"task" => task_params}) do
     current_scope = conn.assigns[:current_scope]
@@ -85,10 +79,9 @@ defmodule SmartTodoWeb.Api.TaskController do
     end
   end
 
-  operation(:update,
+  operation :update,
     summary: "Update a task",
-    description:
-      "Updates an existing task. Only the task owner can update it. All fields are optional - only include the fields you want to update.",
+    description: "Updates an existing task. Only the task owner can update it. All fields are optional - only include the fields you want to update.",
     parameters: [
       id: [in: :path, description: "Task ID", type: :integer, example: 1]
     ],
@@ -99,7 +92,6 @@ defmodule SmartTodoWeb.Api.TaskController do
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
     ]
-  )
 
   def update(conn, %{"id" => id, "task" => task_params}) do
     current_scope = conn.assigns[:current_scope]
@@ -114,10 +106,9 @@ defmodule SmartTodoWeb.Api.TaskController do
     end
   end
 
-  operation(:delete,
+  operation :delete,
     summary: "Delete a task",
-    description:
-      "Deletes a task. Only the task owner can delete it. This also removes all associated dependencies.",
+    description: "Deletes a task. Only the task owner can delete it. This also removes all associated dependencies.",
     parameters: [
       id: [in: :path, description: "Task ID", type: :integer, example: 1]
     ],
@@ -126,7 +117,6 @@ defmodule SmartTodoWeb.Api.TaskController do
       not_found: {"Task not found", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
     ]
-  )
 
   def delete(conn, %{"id" => id}) do
     current_scope = conn.assigns[:current_scope]
@@ -141,21 +131,18 @@ defmodule SmartTodoWeb.Api.TaskController do
     end
   end
 
-  operation(:complete,
+  operation :complete,
     summary: "Complete a task",
-    description:
-      "Marks a task as complete. Validates that all prerequisites are completed before allowing the task to be marked as done. If the task has a recurrence setting, a new task will be created automatically with the next due date.",
+    description: "Marks a task as complete. Validates that all prerequisites are completed before allowing the task to be marked as done. If the task has a recurrence setting, a new task will be created automatically with the next due date.",
     parameters: [
       id: [in: :path, description: "Task ID", type: :integer, example: 1]
     ],
     responses: [
       ok: {"Task completed successfully", "application/json", Schemas.TaskResponse},
       not_found: {"Task not found", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity:
-        {"Prerequisites not complete", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Prerequisites not complete", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
     ]
-  )
 
   def complete(conn, %{"id" => id}) do
     current_scope = conn.assigns[:current_scope]
@@ -170,7 +157,7 @@ defmodule SmartTodoWeb.Api.TaskController do
     end
   end
 
-  operation(:process_natural_language,
+  operation :process_natural_language,
     summary: "Process natural language text",
     description: """
     Processes natural language text to perform task operations using an AI assistant.
@@ -182,17 +169,12 @@ defmodule SmartTodoWeb.Api.TaskController do
     - "Mark the task 'Buy groceries' as complete"
     - "Break down the task 'Launch new website' into smaller steps"
     """,
-    request_body:
-      {"Natural language request", "application/json", Schemas.NaturalLanguageRequest,
-       required: true},
+    request_body: {"Natural language request", "application/json", Schemas.NaturalLanguageRequest, required: true},
     responses: [
-      ok:
-        {"Natural language processed successfully", "application/json",
-         Schemas.NaturalLanguageResponse},
+      ok: {"Natural language processed successfully", "application/json", Schemas.NaturalLanguageResponse},
       unprocessable_entity: {"Processing error", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.UnauthorizedResponse}
     ]
-  )
 
   def process_natural_language(conn, %{"text" => text}) when is_binary(text) do
     current_scope = conn.assigns[:current_scope]
