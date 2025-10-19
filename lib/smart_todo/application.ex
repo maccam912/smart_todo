@@ -13,6 +13,8 @@ defmodule SmartTodo.Application do
       {DNSCluster, query: Application.get_env(:smart_todo, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: SmartTodo.PubSub},
       {Task.Supervisor, name: SmartTodo.Agent.TaskSupervisor},
+      # MCP Server
+      {Anubis.Server, server: SmartTodo.MCP.Server, name: :smart_todo_mcp, transport: :streamable_http},
       # Start a worker by calling: SmartTodo.Worker.start_link(arg)
       # {SmartTodo.Worker, arg},
       # Start to serve requests, typically the last entry
