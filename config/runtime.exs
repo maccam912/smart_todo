@@ -36,7 +36,10 @@ if config_env() == :prod do
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     # For machines with several cores, consider starting multiple pools of `pool_size`
     # pool_count: 4,
-    socket_options: maybe_ipv6
+    socket_options: maybe_ipv6,
+    # PgBouncer transaction mode settings
+    prepare: :unnamed,
+    parameters: []
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
