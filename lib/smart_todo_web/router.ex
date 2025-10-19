@@ -22,6 +22,16 @@ defmodule SmartTodoWeb.Router do
     plug SmartTodoWeb.ApiAuth
   end
 
+  pipeline :mcp do
+    plug :accepts, ["json"]
+    plug SmartTodoWeb.Plugs.MCPTokenAuth
+  end
+
+  # Health check endpoint - no database access
+  scope "/health" do
+    get "/", SmartTodoWeb.HealthController, :check
+  end
+
   scope "/", SmartTodoWeb do
     pipe_through :browser
     # Root redirects based on authentication state
@@ -44,6 +54,13 @@ defmodule SmartTodoWeb.Router do
     resources "/tasks", TaskController, except: [:new, :edit] do
       post "/complete", TaskController, :complete
     end
+  end
+
+  # MCP endpoint with token in path
+  scope "/mcp/:token" do
+    pipe_through :mcp
+
+    forward "/", Anubis.Server.Transport.StreamableHTTP.Plug, server: :smart_todo_mcp
   end
 
   # Swagger UI (available at /swaggerui)
