@@ -1318,31 +1318,35 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
         <div class="flex-1">
           <div class="flex items-start justify-between gap-3">
-            <div class="flex items-center gap-2">
-              <h3 class={[
-                "font-medium",
-                @task.status == :done && "line-through opacity-70"
-              ]}>
-                {@task.title}
-              </h3>
-              <span class="badge badge-outline">{Phoenix.Naming.humanize(@task.urgency)}</span>
-              <span :if={@task.due_date} class="badge badge-ghost">
-                <.icon name="hero-calendar" class="w-4 h-4 mr-1" />
-                {Calendar.strftime(@task.due_date, "%Y-%m-%d")}
-              </span>
-              <span
-                :if={@task.assignee_id != nil and @task.assignee_id != @task.user_id}
-                class="badge badge-info"
-              >
-                <.icon name="hero-user" class="w-3 h-3 mr-1" /> Assigned to user
-              </span>
-              <span :if={@task.assigned_group_id} class="badge badge-secondary">
-                <.icon name="hero-user-group" class="w-3 h-3 mr-1" /> Group assigned
-              </span>
-              <span :if={@task.deferred_until} class={deferred_badge_classes(@task)}>
-                <.icon name="hero-clock" class="w-3 h-3 mr-1" />
-                Deferred until {format_date(@task.deferred_until)}
-              </span>
+            <div class="flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class={[
+                  "font-medium",
+                  @task.status == :done && "line-through opacity-70"
+                ]}>
+                  {@task.title}
+                </h3>
+                <span class="badge badge-outline">{Phoenix.Naming.humanize(@task.urgency)}</span>
+                <span :if={@task.due_date} class="badge badge-ghost">
+                  <.icon name="hero-calendar" class="w-4 h-4 mr-1" />
+                  {Calendar.strftime(@task.due_date, "%Y-%m-%d")}
+                </span>
+              </div>
+              <div :if={has_status_badges?(@task)} class="flex items-center gap-2 flex-wrap mt-1">
+                <span
+                  :if={@task.assignee_id != nil and @task.assignee_id != @task.user_id}
+                  class="badge badge-info"
+                >
+                  <.icon name="hero-user" class="w-3 h-3 mr-1" /> Assigned to user
+                </span>
+                <span :if={@task.assigned_group_id} class="badge badge-secondary">
+                  <.icon name="hero-user-group" class="w-3 h-3 mr-1" /> Group assigned
+                </span>
+                <span :if={@task.deferred_until} class={deferred_badge_classes(@task)}>
+                  <.icon name="hero-clock" class="w-3 h-3 mr-1" />
+                  Deferred until {format_date(@task.deferred_until)}
+                </span>
+              </div>
             </div>
 
             <div class="flex items-center gap-1">
@@ -1470,4 +1474,10 @@ defmodule SmartTodoWeb.TaskLive.Index do
 
   defp format_date(%Date{} = date), do: Calendar.strftime(date, "%Y-%m-%d")
   defp format_date(_), do: ""
+
+  defp has_status_badges?(task) do
+    (task.assignee_id != nil and task.assignee_id != task.user_id) or
+      task.assigned_group_id != nil or
+      task.deferred_until != nil
+  end
 end
