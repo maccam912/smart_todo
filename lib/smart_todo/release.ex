@@ -9,7 +9,6 @@ defmodule SmartTodo.Release do
     load_app()
 
     for repo <- repos() do
-      create_db_if_not_exists(repo)
       {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :up, all: true))
     end
   end
