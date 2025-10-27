@@ -1344,7 +1344,7 @@ defmodule SmartTodoWeb.TaskLive.Index do
                 </span>
                 <span :if={@task.deferred_until} class={deferred_badge_classes(@task)}>
                   <.icon name="hero-clock" class="w-3 h-3 mr-1" />
-                  Deferred until {format_date(@task.deferred_until)}
+                  Deferred
                 </span>
               </div>
             </div>
