@@ -7,6 +7,88 @@
 # General application configuration
 import Config
 
+llm_provider =
+  System.get_env("SMART_TODO_LLM_PROVIDER", "gemini")
+  |> String.downcase()
+  |> case do
+    "gemma3" -> :gemma3_local
+    "gemma3_local" -> :gemma3_local
+    "local" -> :gemma3_local
+    _ -> :gemini
+  end
+
+config :smart_todo, :llm_provider, llm_provider
+
+local_llm_dir =
+  System.get_env("SMART_TODO_LOCAL_MODEL_DIR") ||
+    Path.expand("../priv/local_llm", __DIR__)
+
+local_model_file =
+  System.get_env("SMART_TODO_LOCAL_MODEL_FILE") || "gemma-3-12b-it-Q4_K_M.gguf"
+
+local_model_path =
+  Path.join(local_llm_dir, local_model_file)
+  |> Path.expand()
+
+local_model_name =
+  System.get_env("SMART_TODO_LOCAL_MODEL_NAME") ||
+    Path.rootname(Path.basename(local_model_file))
+
+local_download_url =
+  System.get_env("SMART_TODO_LOCAL_MODEL_URL") ||
+    "https://huggingface.co/google/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf?download=1"
+
+local_server_host =
+  System.get_env("SMART_TODO_LOCAL_SERVER_HOST") || "127.0.0.1"
+
+local_server_port =
+  System.get_env("SMART_TODO_LOCAL_SERVER_PORT")
+  |> case do
+    nil -> 11_434
+    value -> String.to_integer(value)
+  end
+
+local_server_bin =
+  System.get_env("LLAMA_CPP_SERVER_BIN") ||
+    Path.expand("../llama.cpp/server", __DIR__)
+
+local_server_args =
+  System.get_env("SMART_TODO_LOCAL_SERVER_ARGS", "")
+  |> String.trim()
+  |> case do
+    "" -> []
+    value -> OptionParser.split(value)
+  end
+
+local_startup_timeout =
+  System.get_env("SMART_TODO_LOCAL_STARTUP_TIMEOUT_MS")
+  |> case do
+    nil -> 180_000
+    value -> String.to_integer(value)
+  end
+
+local_receive_timeout =
+  System.get_env("SMART_TODO_LOCAL_RECEIVE_TIMEOUT_MS")
+  |> case do
+    nil -> :timer.minutes(10)
+    value -> String.to_integer(value)
+  end
+
+local_health_path =
+  System.get_env("SMART_TODO_LOCAL_HEALTH_PATH") || "/health"
+
+config :smart_todo, :local_llm,
+  model_path: local_model_path,
+  model_name: local_model_name,
+  download_url: local_download_url,
+  server_host: local_server_host,
+  server_port: local_server_port,
+  server_binary: local_server_bin,
+  extra_server_args: local_server_args,
+  startup_timeout: local_startup_timeout,
+  receive_timeout: local_receive_timeout,
+  health_path: local_health_path
+
 config :mime, :types, %{"application/manifest+json" => ["webmanifest"]}
 
 config :smart_todo, :scopes,

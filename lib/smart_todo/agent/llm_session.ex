@@ -9,6 +9,7 @@ defmodule SmartTodo.Agent.LlmSession do
   """
 
   alias SmartTodo.Accounts.Scope
+  alias SmartTodo.Agent.LocalLlm
   alias SmartTodo.Agent.StateMachine
   alias Req
 
@@ -24,6 +25,8 @@ defmodule SmartTodo.Agent.LlmSession do
   @helicone_target_url "https://generativelanguage.googleapis.com"
   @helicone_default_properties %{"App" => "smart_todo"}
   @default_receive_timeout :timer.minutes(10)
+
+  @llm_provider Application.compile_env(:smart_todo, :llm_provider, :gemini)
 
   @spec start(Scope.t(), String.t(), keyword()) :: {:ok, pid()}
   def start(scope, user_text, opts \\ []) do
@@ -202,6 +205,23 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp call_model(payload, opts) do
+    case @llm_provider do
+      :gemma3_local -> call_local_model(payload, opts)
+      _ -> call_gemini_model(payload, opts)
+    end
+  end
+
+  defp call_local_model(payload, opts) do
+    request_fun = Keyword.get(opts, :local_request_fun, &LocalLlm.chat/2)
+
+    case request_fun.(payload, opts) do
+      {:ok, body} -> {:ok, body}
+      {:error, reason} -> {:error, reason}
+      other -> other
+    end
+  end
+
+  defp call_gemini_model(payload, opts) do
     helicone = helicone_settings(opts)
     url = model_endpoint(Keyword.get(opts, :model, @default_model), opts, helicone)
     request_fun = Keyword.get(opts, :request_fun, &default_request/3)
@@ -374,6 +394,15 @@ defmodule SmartTodo.Agent.LlmSession do
   defp maybe_put_headers(opts, []), do: Keyword.delete(opts, :headers)
   defp maybe_put_headers(opts, headers), do: Keyword.put(opts, :headers, headers)
 
+  defp extract_function_call(%{"choices" => [%{"message" => %{"function_call" => call}} | _]}) do
+    name = Map.get(call, "name")
+
+    case name do
+      nil -> {:error, :no_function_call}
+      command -> {:ok, %{command: command, params: normalize_args(Map.get(call, "arguments"))}}
+    end
+  end
+
   defp extract_function_call(%{"candidates" => [candidate | _]}) do
     parts = get_in(candidate, ["content", "parts"]) || []
 
@@ -389,6 +418,14 @@ defmodule SmartTodo.Agent.LlmSession do
   defp extract_function_call(_), do: {:error, :invalid_response}
 
   defp normalize_args(args) when is_map(args), do: args
+
+  defp normalize_args(args) when is_binary(args) do
+    case Jason.decode(args) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> %{}
+    end
+  end
+
   defp normalize_args(_), do: %{}
 
   @supported_commands ~w(select_task create_task update_task_fields delete_task complete_task exit_editing discard_all complete_session record_plan)a
