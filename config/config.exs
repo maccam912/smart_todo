@@ -26,9 +26,9 @@ config :smart_todo,
   ecto_repos: [SmartTodo.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# LLM Provider configuration - set LLM_PROVIDER=local at build time to use Gemma 3
-# Default is gemini. This is a compile-time configuration.
-llm_provider = System.get_env("LLM_PROVIDER", "gemini")
+# LLM Provider configuration - set LLM_PROVIDER=gemini to use Gemini API
+# Default is local (Gemma 3 via llama.cpp). This is a compile-time configuration.
+llm_provider = System.get_env("LLM_PROVIDER", "local")
 
 config :smart_todo, :llm,
   provider: String.to_atom(llm_provider),

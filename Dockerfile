@@ -20,9 +20,9 @@ ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 
 FROM ${BUILDER_IMAGE} AS builder
 
-# install build dependencies
+# install build dependencies (including cmake for llama.cpp)
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential git \
+  && apt-get install -y --no-install-recommends build-essential git cmake curl \
   && rm -rf /var/lib/apt/lists/*
 
 # prepare build dir
@@ -34,6 +34,7 @@ RUN mix local.hex --force \
 
 # set build ENV
 ENV MIX_ENV="prod"
+ENV LLM_PROVIDER="local"
 
 # install mix dependencies
 COPY mix.exs mix.lock ./
@@ -66,12 +67,23 @@ COPY config/runtime.exs config/
 COPY rel rel
 RUN mix release
 
+# Build llama.cpp for local model inference
+RUN mkdir -p /app/priv && \
+    cd /app/priv && \
+    git clone --depth 1 https://github.com/ggerganov/llama.cpp && \
+    cd llama.cpp && \
+    cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build build --config Release --target llama-server -j$(nproc)
+
 # start a new build stage so that the final image will only contain
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE} AS final
 
+# Install runtime dependencies including curl for model download
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses5 locales ca-certificates \
+  && apt-get install -y --no-install-recommends \
+     libstdc++6 openssl libncurses5 locales ca-certificates \
+     curl git \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -83,15 +95,28 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 WORKDIR "/app"
-RUN chown nobody /app
+
+# Create directories for llama.cpp and models with appropriate permissions
+RUN mkdir -p /app/priv/llama.cpp /app/priv/models && \
+    chown -R nobody:nogroup /app
 
 # set runner ENV
 ENV MIX_ENV="prod"
+ENV LLM_PROVIDER="local"
+ENV LOCAL_MODEL_PATH="/app/priv/models"
+ENV LLAMA_PORT="8080"
 
-# Only copy the final release from the build stage
-COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/smart_todo ./
+# Copy the final release from the build stage
+COPY --from=builder --chown=nobody:nogroup /app/_build/${MIX_ENV}/rel/smart_todo ./
+
+# Copy the built llama.cpp binary and necessary files
+COPY --from=builder --chown=nobody:nogroup /app/priv/llama.cpp /app/priv/llama.cpp
 
 RUN chmod +x bin/server bin/migrate
+
+# Expose ports for Phoenix and llama.cpp server
+EXPOSE 4000 8080
+
 USER nobody
 
 # If using an environment that doesn't automatically reap zombie processes, it is
