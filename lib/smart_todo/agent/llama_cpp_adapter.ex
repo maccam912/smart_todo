@@ -69,8 +69,8 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
     system_message = extract_system_message(payload["systemInstruction"])
     content_messages = translate_contents(payload["contents"] || [])
 
-    [system_message | content_messages]
-    |> Enum.reject(&is_nil/1)
+    ([system_message | content_messages]
+    |> Enum.reject(&is_nil/1))
   end
 
   defp extract_system_message(nil), do: nil
@@ -84,35 +84,52 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
   end
 
   defp translate_contents(contents) do
-    Enum.map(contents, &translate_content/1)
+    # Use map_reduce to track tool_call_id and function name across messages
+    {messages, _state} =
+      Enum.map_reduce(contents, %{}, fn content, state ->
+        translate_content_with_state(content, state)
+      end)
+
+    messages
   end
 
-  defp translate_content(%{"role" => "user", "parts" => parts}) do
+  defp translate_content_with_state(%{"role" => "user", "parts" => parts}, state) do
     content = parts
               |> Enum.map(fn %{"text" => t} -> t end)
               |> Enum.join("\n")
 
-    %{"role" => "user", "content" => content}
+    {%{"role" => "user", "content" => content}, state}
   end
 
-  defp translate_content(%{"role" => "model", "parts" => parts}) do
+  defp translate_content_with_state(%{"role" => "model", "parts" => parts}, state) do
     # Check if this is a function call
     case Enum.find(parts, &Map.has_key?(&1, "functionCall")) do
       %{"functionCall" => fc} ->
-        %{
+        tool_call_id = generate_tool_call_id()
+        function_name = fc["name"]
+
+        message = %{
           "role" => "assistant",
           "content" => nil,
           "tool_calls" => [
             %{
-              "id" => generate_tool_call_id(),
+              "id" => tool_call_id,
               "type" => "function",
               "function" => %{
-                "name" => fc["name"],
+                "name" => function_name,
                 "arguments" => Jason.encode!(fc["args"])
               }
             }
           ]
         }
+
+        # Store the tool_call_id and function name for the next tool response
+        new_state = Map.merge(state, %{
+          last_tool_call_id: tool_call_id,
+          last_function_name: function_name
+        })
+
+        {message, new_state}
 
       _ ->
         # Regular assistant message
@@ -120,26 +137,33 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
                   |> Enum.map(fn %{"text" => t} -> t end)
                   |> Enum.join("\n")
 
-        %{"role" => "assistant", "content" => content}
+        {%{"role" => "assistant", "content" => content}, state}
     end
   end
 
-  defp translate_content(%{"role" => "tool", "parts" => parts}) do
+  defp translate_content_with_state(%{"role" => "tool", "parts" => parts}, state) do
     # Extract function response
     case Enum.find(parts, &Map.has_key?(&1, "functionResponse")) do
       %{"functionResponse" => fr} ->
-        %{
+        # Reuse the tool_call_id and function name from the previous assistant message
+        tool_call_id = Map.get(state, :last_tool_call_id, generate_tool_call_id())
+        function_name = Map.get(state, :last_function_name, fr["name"])
+
+        message = %{
           "role" => "tool",
-          "tool_call_id" => generate_tool_call_id(),
+          "tool_call_id" => tool_call_id,
+          "name" => function_name,
           "content" => Jason.encode!(fr["response"])
         }
 
+        {message, state}
+
       _ ->
-        nil
+        {nil, state}
     end
   end
 
-  defp translate_content(_), do: nil
+  defp translate_content_with_state(_, state), do: {nil, state}
 
   defp build_openai_tools(nil), do: []
   defp build_openai_tools([]), do: []
