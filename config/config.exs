@@ -33,7 +33,7 @@ llm_provider = System.get_env("LLM_PROVIDER", "local")
 config :smart_todo, :llm,
   provider: String.to_atom(llm_provider),
   local_model_path: System.get_env("LOCAL_MODEL_PATH", "priv/models"),
-  local_model_url: "https://huggingface.co/bartowski/gemma-3-12b-GGUF/resolve/main/gemma-3-12b-Q4_K_M.gguf",
+  local_model_url: "https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf",
   local_server_port: String.to_integer(System.get_env("LLAMA_PORT", "8080"))
 
 # Configures the endpoint
