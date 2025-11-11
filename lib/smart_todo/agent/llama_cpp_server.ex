@@ -136,7 +136,7 @@ defmodule SmartTodo.Agent.LlamaCppServer do
     model_dir = Keyword.get(config, :local_model_path, "priv/models")
     model_url = Keyword.get(config, :local_model_url)
 
-    model_path = Path.join(model_dir, "gemma-3-12b-Q4_K_M.gguf")
+    model_path = Path.join(model_dir, "gemma-3-12b-it-Q4_K_M.gguf")
 
     if File.exists?(model_path) do
       Logger.info("Model already exists at #{model_path}")
