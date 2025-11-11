@@ -193,9 +193,13 @@ defmodule SmartTodo.Agent.LlamaCppServer do
       {"Compile llama.cpp", "cmake", ["--build", "build", "--config", "Release", "--target", "llama-server"], llama_cpp_dir}
     ]
 
-    Enum.reduce_while(steps, :ok, fn {desc, cmd, args} = step, _acc ->
+    Enum.reduce_while(steps, :ok, fn step, _acc ->
+      {desc, cmd, args, working_dir} = case step do
+        {d, c, a, wd} -> {d, c, a, wd}
+        {d, c, a} -> {d, c, a, nil}
+      end
+
       Logger.info("#{desc}...")
-      working_dir = if tuple_size(step) == 4, do: elem(step, 3), else: nil
 
       opts = if working_dir, do: [cd: working_dir, stderr_to_stdout: true], else: [stderr_to_stdout: true]
 
