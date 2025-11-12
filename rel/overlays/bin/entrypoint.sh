@@ -94,8 +94,14 @@ else
         -DGGML_METAL=OFF \
         -DGGML_AVX=OFF \
         -DGGML_AVX2=OFF \
+        -DGGML_AVX512=OFF \
         -DGGML_FMA=OFF \
-        -DGGML_F16C=OFF
+        -DGGML_F16C=OFF \
+        -DGGML_SSE3=OFF \
+        -DGGML_SSSE3=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic" \
+        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic"
     echo "✓ CMake configuration complete"
     echo ""
 
