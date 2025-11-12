@@ -67,23 +67,15 @@ COPY config/runtime.exs config/
 COPY rel rel
 RUN mix release
 
-# Build llama.cpp for local model inference
-RUN mkdir -p /app/priv && \
-    cd /app/priv && \
-    git clone --depth 1 https://github.com/ggerganov/llama.cpp && \
-    cd llama.cpp && \
-    cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build build --config Release --target llama-server -j$(nproc)
-
 # start a new build stage so that the final image will only contain
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE} AS final
 
-# Install runtime dependencies including curl for model download
+# Install runtime dependencies including build tools for llama.cpp compilation
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
      libstdc++6 openssl libncurses5 locales ca-certificates \
-     curl git libgomp1 \
+     curl git libgomp1 build-essential cmake libcurl4-openssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -108,13 +100,6 @@ ENV LLAMA_PORT="8080"
 
 # Copy the final release from the build stage
 COPY --from=builder --chown=nobody:nogroup /app/_build/${MIX_ENV}/rel/smart_todo ./
-
-# Copy the built llama.cpp binary and necessary files
-COPY --from=builder --chown=nobody:nogroup /app/priv/llama.cpp /app/priv/llama.cpp
-
-# Verify llama-server has all required shared libraries
-RUN ldd /app/priv/llama.cpp/build/bin/llama-server || \
-    (echo "ERROR: llama-server is missing required shared libraries" && exit 1)
 
 RUN chmod +x bin/server bin/migrate
 
