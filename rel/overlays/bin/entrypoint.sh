@@ -111,6 +111,11 @@ if [ "$NEEDS_COMPILE" = true ]; then
     echo "Building llama-server (this may take several minutes)..."
     cd "$LLAMA_CPP_DIR"
 
+    # Ensure build directory exists and has proper permissions
+    echo "Creating build directory..."
+    mkdir -p build
+    chmod 755 build
+
     echo "Running cmake configuration..."
     cmake -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Debug \
