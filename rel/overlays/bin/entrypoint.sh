@@ -88,7 +88,14 @@ else
     cd "$LLAMA_CPP_DIR"
 
     echo "Running cmake configuration..."
-    cmake -B build -DGGML_NATIVE=OFF -DGGML_CUDA=OFF -DGGML_METAL=OFF
+    cmake -B build \
+        -DGGML_NATIVE=OFF \
+        -DGGML_CUDA=OFF \
+        -DGGML_METAL=OFF \
+        -DGGML_AVX=OFF \
+        -DGGML_AVX2=OFF \
+        -DGGML_FMA=OFF \
+        -DGGML_F16C=OFF
     echo "✓ CMake configuration complete"
     echo ""
 
