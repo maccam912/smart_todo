@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -ex
 
 # Configuration from environment variables
 MODEL_URL="${MODEL_URL:-https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf}"
