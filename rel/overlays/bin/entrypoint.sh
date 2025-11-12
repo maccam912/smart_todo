@@ -66,10 +66,25 @@ echo "Step 2: Checking llama-server compilation"
 echo "=========================================="
 echo "Expected binary: ${LLAMA_SERVER_BIN}"
 
+NEEDS_COMPILE=false
+
 if [ -f "$LLAMA_SERVER_BIN" ]; then
-    echo "✓ llama-server already compiled"
+    echo "Found existing llama-server binary, testing compatibility..."
+    # Test if the binary works (might have illegal instructions from old build)
+    if timeout 5 "$LLAMA_SERVER_BIN" --version > /dev/null 2>&1; then
+        echo "✓ llama-server binary is compatible"
+    else
+        echo "⚠ Existing binary is incompatible (likely illegal instructions)"
+        echo "Removing old build to force recompilation..."
+        rm -rf "$LLAMA_CPP_DIR/build"
+        NEEDS_COMPILE=true
+    fi
 else
-    echo "llama-server not found, compiling from source..."
+    NEEDS_COMPILE=true
+fi
+
+if [ "$NEEDS_COMPILE" = true ]; then
+    echo "llama-server needs compilation..."
     echo ""
 
     # Create directory
@@ -80,6 +95,9 @@ else
         echo "Cloning llama.cpp repository..."
         git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_CPP_DIR"
         echo "✓ Repository cloned"
+        echo ""
+    else
+        echo "✓ Repository already exists (using PVC)"
         echo ""
     fi
 
@@ -100,9 +118,10 @@ else
         -DGGML_F16C=OFF \
         -DGGML_SSE3=OFF \
         -DGGML_SSSE3=OFF \
+        -DGGML_CPU_ALL_VARIANTS=OFF \
         -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic -O0" \
-        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic -O0"
+        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic -mno-sse4.2 -mno-bmi -mno-bmi2 -O0" \
+        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic -mno-sse4.2 -mno-bmi -mno-bmi2 -O0"
     echo "✓ CMake configuration complete"
     echo ""
 
