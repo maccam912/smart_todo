@@ -117,6 +117,8 @@ if [ "$NEEDS_COMPILE" = true ]; then
     chmod 755 build
 
     echo "Running cmake configuration..."
+    # Use extremely conservative settings for Sandy Bridge CPU
+    # This CPU supports up to SSE4.2 but NOT BMI/BMI2/AVX2
     cmake -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Debug \
         -DGGML_NATIVE=OFF \
@@ -129,10 +131,17 @@ if [ "$NEEDS_COMPILE" = true ]; then
         -DGGML_F16C=OFF \
         -DGGML_SSE3=OFF \
         -DGGML_SSSE3=OFF \
+        -DGGML_SSE4=OFF \
+        -DGGML_SSE42=OFF \
+        -DGGML_BMI=OFF \
+        -DGGML_BMI2=OFF \
         -DGGML_CPU_ALL_VARIANTS=OFF \
+        -DGGML_CPU_HBM=OFF \
         -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic -mno-sse4.2 -mno-bmi -mno-bmi2 -O0" \
-        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic -mno-sse4.2 -mno-bmi -mno-bmi2 -O0"
+        -DCMAKE_C_COMPILER_LAUNCHER="" \
+        -DCMAKE_CXX_COMPILER_LAUNCHER="" \
+        -DCMAKE_C_FLAGS="-march=core2 -mtune=generic -mno-sse3 -mno-ssse3 -mno-sse4 -mno-sse4.1 -mno-sse4.2 -mno-avx -mno-avx2 -mno-bmi -mno-bmi2 -mno-fma -mno-f16c -O0 -g" \
+        -DCMAKE_CXX_FLAGS="-march=core2 -mtune=generic -mno-sse3 -mno-ssse3 -mno-sse4 -mno-sse4.1 -mno-sse4.2 -mno-avx -mno-avx2 -mno-bmi -mno-bmi2 -mno-fma -mno-f16c -O0 -g"
     echo "✓ CMake configuration complete"
     echo ""
 
@@ -156,18 +165,35 @@ echo "=========================================="
 echo "Step 3: Starting llama-server"
 echo "=========================================="
 echo "Port: ${LLAMA_PORT}"
-echo "Context size: 8192"
-echo "Max tokens: 2048"
-echo "Threads: 3"
+echo "Context size: 2048 (reduced for stability)"
+echo "Max tokens: 512 (reduced for stability)"
+echo "Threads: 1 (single thread for debugging)"
 echo ""
 
-# Start llama-server in background
+# First, test if the binary can run at all
+echo "Testing binary compatibility..."
+if ! "$LLAMA_SERVER_BIN" --version > /tmp/llama-version-test.log 2>&1; then
+    echo "ERROR: Binary test failed with illegal instruction"
+    echo "Version test output:"
+    cat /tmp/llama-version-test.log
+    echo ""
+    echo "Running 'file' command on binary:"
+    file "$LLAMA_SERVER_BIN"
+    echo ""
+    echo "CPU information:"
+    cat /proc/cpuinfo | grep -E "model name|flags" | head -5
+    exit 1
+fi
+echo "✓ Binary compatibility test passed"
+echo ""
+
+# Start llama-server in background with reduced resources
 "$LLAMA_SERVER_BIN" \
     --port "$LLAMA_PORT" \
     --model "$MODEL_PATH" \
-    --ctx-size 8192 \
-    --n-predict 2048 \
-    --threads 3 \
+    --ctx-size 2048 \
+    --n-predict 512 \
+    --threads 1 \
     --log-disable \
     > /tmp/llama-server.log 2>&1 &
 
