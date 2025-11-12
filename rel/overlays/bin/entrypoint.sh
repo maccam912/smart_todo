@@ -89,6 +89,7 @@ else
 
     echo "Running cmake configuration..."
     cmake -B build \
+        -DCMAKE_BUILD_TYPE=Debug \
         -DGGML_NATIVE=OFF \
         -DGGML_CUDA=OFF \
         -DGGML_METAL=OFF \
@@ -100,8 +101,8 @@ else
         -DGGML_SSE3=OFF \
         -DGGML_SSSE3=OFF \
         -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic" \
-        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic"
+        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic -O0" \
+        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic -O0"
     echo "✓ CMake configuration complete"
     echo ""
 
