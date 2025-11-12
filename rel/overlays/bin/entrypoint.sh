@@ -67,8 +67,14 @@ echo "=========================================="
 echo "Expected binary: ${LLAMA_SERVER_BIN}"
 
 NEEDS_COMPILE=false
+FORCE_RECOMPILE="${FORCE_RECOMPILE:-true}"
 
-if [ -f "$LLAMA_SERVER_BIN" ]; then
+if [ "$FORCE_RECOMPILE" = "true" ]; then
+    echo "⚠ FORCE_RECOMPILE is set, forcing recompilation..."
+    echo "Removing old build to force recompilation..."
+    rm -rf "$LLAMA_CPP_DIR/build"
+    NEEDS_COMPILE=true
+elif [ -f "$LLAMA_SERVER_BIN" ]; then
     echo "Found existing llama-server binary, testing compatibility..."
     # Test if the binary works (might have illegal instructions from old build)
     if timeout 5 "$LLAMA_SERVER_BIN" --version > /dev/null 2>&1; then
