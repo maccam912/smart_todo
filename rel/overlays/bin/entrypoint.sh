@@ -195,6 +195,7 @@ echo ""
     --n-predict 512 \
     --threads 1 \
     --log-disable \
+    --jinja \
     > /tmp/llama-server.log 2>&1 &
 
 LLAMA_PID=$!
