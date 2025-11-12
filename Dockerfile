@@ -83,7 +83,7 @@ FROM ${RUNNER_IMAGE} AS final
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
      libstdc++6 openssl libncurses5 locales ca-certificates \
-     curl git \
+     curl git libgomp1 \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -111,6 +111,10 @@ COPY --from=builder --chown=nobody:nogroup /app/_build/${MIX_ENV}/rel/smart_todo
 
 # Copy the built llama.cpp binary and necessary files
 COPY --from=builder --chown=nobody:nogroup /app/priv/llama.cpp /app/priv/llama.cpp
+
+# Verify llama-server has all required shared libraries
+RUN ldd /app/priv/llama.cpp/build/bin/llama-server || \
+    (echo "ERROR: llama-server is missing required shared libraries" && exit 1)
 
 RUN chmod +x bin/server bin/migrate
 
