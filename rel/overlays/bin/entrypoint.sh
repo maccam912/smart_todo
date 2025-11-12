@@ -100,9 +100,10 @@ else
         -DGGML_F16C=OFF \
         -DGGML_SSE3=OFF \
         -DGGML_SSSE3=OFF \
+        -DGGML_CPU_ALL_VARIANTS=OFF \
         -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic -O0" \
-        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic -O0"
+        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic -mno-sse4.2 -mno-bmi -mno-bmi2 -O0" \
+        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic -mno-sse4.2 -mno-bmi -mno-bmi2 -O0"
     echo "✓ CMake configuration complete"
     echo ""
 
