@@ -100,6 +100,7 @@ ENV LLAMA_PORT="8080"
 ENV LLAMA_CPP_DIR="/app/priv/llama.cpp"
 ENV MODEL_URL="https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf"
 ENV STARTUP_TIMEOUT="600"
+# FORCE_RECOMPILE defaults to "true" - set to "false" to skip recompilation if binary exists
 
 # Copy the final release from the build stage
 COPY --from=builder --chown=nobody:nogroup /app/_build/${MIX_ENV}/rel/smart_todo ./

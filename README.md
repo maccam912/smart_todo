@@ -72,6 +72,17 @@ docker run -p 4000:4000 \
   smart_todo
 ```
 
+**Recompilation behavior:**
+By default, llama.cpp is recompiled on every startup for consistency. To skip recompilation if a binary already exists:
+```bash
+docker run -p 4000:4000 -p 8080:8080 \
+  -v smart_todo_models:/app/priv/models \
+  -e FORCE_RECOMPILE=false \
+  -e SECRET_KEY_BASE=$(mix phx.gen.secret) \
+  -e DATABASE_URL=your_database_url \
+  smart_todo
+```
+
 ## Requirements
 
 **For local model (default):**
