@@ -172,14 +172,17 @@ defmodule SmartTodo.Agent.LlamaCppServer do
   end
 
   defp ensure_llama_cpp_built do
-    llama_cpp_dir = "priv/llama.cpp"
+    # Use absolute path that matches Docker image structure
+    # In Docker, llama.cpp is pre-built and copied to /app/priv/llama.cpp
+    llama_cpp_dir = "/app/priv/llama.cpp"
     # llama-server is built in the build/bin directory
     llama_server = Path.join([llama_cpp_dir, "build", "bin", "llama-server"])
 
     if File.exists?(llama_server) do
+      Logger.info("Using pre-built llama.cpp at #{llama_server}")
       {:ok, llama_server}
     else
-      Logger.info("llama.cpp not found, cloning and building...")
+      Logger.info("llama.cpp not found at #{llama_server}, cloning and building...")
       build_llama_cpp(llama_cpp_dir, llama_server)
     end
   end
