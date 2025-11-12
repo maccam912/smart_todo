@@ -20,9 +20,9 @@ ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 
 FROM ${BUILDER_IMAGE} AS builder
 
-# install build dependencies (including cmake for llama.cpp)
+# install build dependencies (including cmake and ninja for llama.cpp)
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential git cmake curl libcurl4-openssl-dev \
+  && apt-get install -y --no-install-recommends build-essential git cmake ninja-build curl libcurl4-openssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # prepare build dir
@@ -75,7 +75,7 @@ FROM ${RUNNER_IMAGE} AS final
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
      libstdc++6 openssl libncurses5 locales ca-certificates \
-     curl git libgomp1 build-essential cmake libcurl4-openssl-dev \
+     curl git libgomp1 build-essential cmake ninja-build libcurl4-openssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale

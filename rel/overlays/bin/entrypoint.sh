@@ -88,7 +88,7 @@ else
     cd "$LLAMA_CPP_DIR"
 
     echo "Running cmake configuration..."
-    cmake -B build \
+    cmake -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Debug \
         -DGGML_NATIVE=OFF \
         -DGGML_CUDA=OFF \
@@ -106,8 +106,8 @@ else
     echo "✓ CMake configuration complete"
     echo ""
 
-    echo "Compiling llama-server..."
-    cmake --build build --target llama-server -j$(nproc)
+    echo "Compiling llama-server with ninja..."
+    cmake --build build --target llama-server
     echo "✓ Compilation complete"
     echo ""
 
