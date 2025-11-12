@@ -231,10 +231,9 @@ defmodule SmartTodo.Agent.LlamaCppServer do
     args = [
       "--model", model_path,
       "--port", to_string(port),
-      "--n-gpu-layers", "99",  # Use GPU if available
       "--ctx-size", "8192",
       "--n-predict", "2048",
-      "--threads", "8"
+      "--threads", "3"
     ]
 
     Logger.info("Starting llama-server: #{llama_server_path} #{Enum.join(args, " ")}")
