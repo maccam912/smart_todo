@@ -58,7 +58,7 @@ docker run -p 4000:4000 -p 8080:8080 \
 **What happens on first startup:**
 1. llama.cpp is already built into the image
 2. The Gemma 3 12B model (~7GB) downloads automatically to the volume
-3. llama-server starts on port 8080
+3. llama-server starts on port 8080 using 3 CPU threads
 4. Phoenix server starts on port 4000 once llama-server is ready
 
 **To use Gemini API instead in Docker:**
