@@ -13,8 +13,6 @@ defmodule SmartTodo.Application do
       {DNSCluster, query: Application.get_env(:smart_todo, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: SmartTodo.PubSub},
       {Task.Supervisor, name: SmartTodo.Agent.TaskSupervisor},
-      # Start llama.cpp server if configured for local model
-      SmartTodo.Agent.LlamaCppServer,
       # Start a worker by calling: SmartTodo.Worker.start_link(arg)
       # {SmartTodo.Worker, arg},
       # Start to serve requests, typically the last entry

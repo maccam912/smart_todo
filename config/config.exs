@@ -26,15 +26,13 @@ config :smart_todo,
   ecto_repos: [SmartTodo.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# LLM Provider configuration - set LLM_PROVIDER=gemini to use Gemini API
-# Default is local (Gemma 3 via llama.cpp). This is a compile-time configuration.
-llm_provider = System.get_env("LLM_PROVIDER", "local")
+# LLM Provider configuration
+# LLM_BASE_URL: Base URL for the LLM API (defaults to llmaz.rackspace.koski.co)
+# Set to "https://generativelanguage.googleapis.com/v1beta" to use Gemini API directly
+llm_base_url = System.get_env("LLM_BASE_URL", "https://llmaz.rackspace.koski.co/v1beta")
 
 config :smart_todo, :llm,
-  provider: String.to_atom(llm_provider),
-  local_model_path: System.get_env("LOCAL_MODEL_PATH", "priv/models"),
-  local_model_url: "https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf",
-  local_server_port: String.to_integer(System.get_env("LLAMA_PORT", "8080"))
+  base_url: llm_base_url
 
 # Configures the endpoint
 config :smart_todo, SmartTodoWeb.Endpoint,

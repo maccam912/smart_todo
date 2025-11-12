@@ -10,7 +10,6 @@ defmodule SmartTodo.Agent.LlmSession do
 
   alias SmartTodo.Accounts.Scope
   alias SmartTodo.Agent.StateMachine
-  alias SmartTodo.Agent.LlamaCppAdapter
   alias Req
 
   @status_options ~w(todo in_progress done)a
@@ -20,7 +19,7 @@ defmodule SmartTodo.Agent.LlmSession do
   @max_errors 3
   @max_rounds 20
   @default_model "gemini-2.5-flash"
-  @base_url "https://generativelanguage.googleapis.com/v1beta"
+  @gemini_base_url "https://generativelanguage.googleapis.com/v1beta"
   @helicone_base_url "https://gateway.helicone.ai/v1beta"
   @helicone_target_url "https://generativelanguage.googleapis.com"
   @helicone_default_properties %{"App" => "smart_todo"}
@@ -212,20 +211,6 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp default_request(url, payload, opts) do
-    provider = get_llm_provider()
-
-    case provider do
-      :local ->
-        # Use llama.cpp adapter for local model
-        LlamaCppAdapter.request(payload, opts)
-
-      :gemini ->
-        # Use Gemini API
-        gemini_request(url, payload, opts)
-    end
-  end
-
-  defp gemini_request(url, payload, opts) do
     api_key = Keyword.get(opts, :api_key, api_key!())
     headers = normalize_headers(Keyword.get(opts, :headers, []))
 
@@ -245,11 +230,6 @@ defmodule SmartTodo.Agent.LlmSession do
     end
   end
 
-  defp get_llm_provider do
-    config = Application.get_env(:smart_todo, :llm, [])
-    Keyword.get(config, :provider, :gemini)
-  end
-
   defp ensure_default_timeouts(opts) do
     configured_timeout = default_receive_timeout()
 
@@ -262,14 +242,9 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp api_key! do
-    # Local provider doesn't need an API key
-    if get_llm_provider() == :local do
-      ""
-    else
-      case present(System.get_env("GEMINI_API_KEY")) || present(System.get_env("GOOGLE_API_KEY")) do
-        nil -> raise "Environment variable GEMINI_API_KEY or GOOGLE_API_KEY is required"
-        key -> key
-      end
+    case present(System.get_env("GEMINI_API_KEY")) || present(System.get_env("GOOGLE_API_KEY")) do
+      nil -> raise "Environment variable GEMINI_API_KEY or GOOGLE_API_KEY is required"
+      key -> key
     end
   end
 
@@ -278,8 +253,13 @@ defmodule SmartTodo.Agent.LlmSession do
       case Keyword.get(opts, :base_url) do
         nil ->
           case helicone do
-            %{base_url: base_url} -> base_url
-            _ -> @base_url
+            %{base_url: base_url} ->
+              base_url
+
+            _ ->
+              # Get base URL from configuration
+              config = Application.get_env(:smart_todo, :llm, [])
+              Keyword.get(config, :base_url, @gemini_base_url)
           end
 
         base_url ->
