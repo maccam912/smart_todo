@@ -88,7 +88,8 @@ else
     cd "$LLAMA_CPP_DIR"
 
     echo "Running cmake configuration..."
-    cmake -B build \
+    cmake -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Debug \
         -DGGML_NATIVE=OFF \
         -DGGML_CUDA=OFF \
         -DGGML_METAL=OFF \
@@ -100,13 +101,13 @@ else
         -DGGML_SSE3=OFF \
         -DGGML_SSSE3=OFF \
         -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic" \
-        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic"
+        -DCMAKE_C_FLAGS="-march=x86-64 -mtune=generic -O0" \
+        -DCMAKE_CXX_FLAGS="-march=x86-64 -mtune=generic -O0"
     echo "✓ CMake configuration complete"
     echo ""
 
-    echo "Compiling llama-server..."
-    cmake --build build --target llama-server -j$(nproc)
+    echo "Compiling llama-server with ninja..."
+    cmake --build build --target llama-server
     echo "✓ Compilation complete"
     echo ""
 
