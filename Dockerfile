@@ -97,11 +97,14 @@ ENV MIX_ENV="prod"
 ENV LLM_PROVIDER="local"
 ENV LOCAL_MODEL_PATH="/app/priv/models"
 ENV LLAMA_PORT="8080"
+ENV LLAMA_CPP_DIR="/app/priv/llama.cpp"
+ENV MODEL_URL="https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf"
+ENV STARTUP_TIMEOUT="600"
 
 # Copy the final release from the build stage
 COPY --from=builder --chown=nobody:nogroup /app/_build/${MIX_ENV}/rel/smart_todo ./
 
-RUN chmod +x bin/server bin/migrate
+RUN chmod +x bin/server bin/migrate bin/entrypoint.sh
 
 # Expose ports for Phoenix and llama.cpp server
 EXPOSE 4000 8080
@@ -113,4 +116,5 @@ USER nobody
 # above and adding an entrypoint. See https://github.com/krallin/tini for details
 # ENTRYPOINT ["/tini", "--"]
 
-CMD ["/app/bin/server"]
+# Use entrypoint script to handle llama-server startup before Elixir app
+CMD ["/app/bin/entrypoint.sh", "/app/bin/server"]
