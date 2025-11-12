@@ -87,15 +87,35 @@ else
     echo "Building llama-server (this may take several minutes)..."
     cd "$LLAMA_CPP_DIR"
 
-    echo "Running cmake configuration..."
+    # Detect available CPU features at runtime
+    echo "Detecting available CPU features..."
+
+    # Function to check if a CPU flag is available
+    check_cpu_flag() {
+        grep -q " $1 " /proc/cpuinfo && echo "ON" || echo "OFF"
+    }
+
+    # Detect specific instruction sets
+    GGML_AVX_SUPPORT=$(check_cpu_flag "avx")
+    GGML_AVX2_SUPPORT=$(check_cpu_flag "avx2")
+    GGML_FMA_SUPPORT=$(check_cpu_flag "fma")
+    GGML_F16C_SUPPORT=$(check_cpu_flag "f16c")
+
+    echo "  AVX:   ${GGML_AVX_SUPPORT}"
+    echo "  AVX2:  ${GGML_AVX2_SUPPORT}"
+    echo "  FMA:   ${GGML_FMA_SUPPORT}"
+    echo "  F16C:  ${GGML_F16C_SUPPORT}"
+    echo ""
+
+    echo "Running cmake configuration with detected CPU features..."
     cmake -B build \
         -DGGML_NATIVE=OFF \
         -DGGML_CUDA=OFF \
         -DGGML_METAL=OFF \
-        -DGGML_AVX=OFF \
-        -DGGML_AVX2=OFF \
-        -DGGML_FMA=OFF \
-        -DGGML_F16C=OFF
+        -DGGML_AVX="${GGML_AVX_SUPPORT}" \
+        -DGGML_AVX2="${GGML_AVX2_SUPPORT}" \
+        -DGGML_FMA="${GGML_FMA_SUPPORT}" \
+        -DGGML_F16C="${GGML_F16C_SUPPORT}"
     echo "✓ CMake configuration complete"
     echo ""
 
