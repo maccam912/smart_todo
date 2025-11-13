@@ -17,5 +17,10 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
+# Include metadata in production logs for better debugging
+config :logger, :default_formatter,
+  format: "[$level] $message $metadata\n",
+  metadata: :all
+
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

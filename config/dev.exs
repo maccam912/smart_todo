@@ -66,8 +66,10 @@ config :smart_todo, SmartTodoWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :smart_todo, dev_routes: true
 
-# Do not include metadata nor timestamps in development logs
-config :logger, :default_formatter, format: "[$level] $message\n"
+# Include metadata in development logs for better debugging
+config :logger, :default_formatter,
+  format: "[$level] $message $metadata\n",
+  metadata: :all
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.
