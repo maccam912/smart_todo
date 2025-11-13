@@ -70,10 +70,8 @@ RUN mix release
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE} AS final
 
-# Install runtime dependencies
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-     libstdc++6 openssl libncurses5 locales ca-certificates \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses5 locales ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -85,17 +83,20 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 WORKDIR "/app"
-RUN chown nobody:nogroup /app
+RUN chown nobody /app
 
 # set runner ENV
 ENV MIX_ENV="prod"
 
-# Copy the final release from the build stage
-COPY --from=builder --chown=nobody:nogroup /app/_build/${MIX_ENV}/rel/smart_todo ./
+# Only copy the final release from the build stage
+COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/smart_todo ./
 
+RUN chmod +x bin/server bin/migrate
 USER nobody
 
-# Expose port for Phoenix
-EXPOSE 4000
+# If using an environment that doesn't automatically reap zombie processes, it is
+# advised to add an init process such as tini via `apt-get install`
+# above and adding an entrypoint. See https://github.com/krallin/tini for details
+# ENTRYPOINT ["/tini", "--"]
 
 CMD ["/app/bin/server"]
