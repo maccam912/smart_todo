@@ -342,6 +342,17 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp helicone_settings(opts) do
+    # Get the configured LLM base URL to determine if we should use Helicone
+    configured_base_url =
+      opts
+      |> Keyword.get(:base_url)
+      |> present() ||
+        (Application.get_env(:smart_todo, :llm, [])
+         |> Keyword.get(:base_url, @base_url))
+
+    # Only use Helicone with Google's Gemini API, not with self-hosted servers
+    using_gemini_api? = String.contains?(configured_base_url, "generativelanguage.googleapis.com")
+
     key =
       opts
       |> Keyword.get(:helicone_api_key)
@@ -352,7 +363,7 @@ defmodule SmartTodo.Agent.LlmSession do
       nil ->
         nil
 
-      key ->
+      key when using_gemini_api? ->
         base_url =
           opts
           |> Keyword.get(:helicone_base_url)
@@ -372,6 +383,11 @@ defmodule SmartTodo.Agent.LlmSession do
           |> Map.merge(normalize_properties(Keyword.get(opts, :helicone_properties, %{})))
 
         %{api_key: key, base_url: base_url, target_url: target_url, properties: properties}
+
+      _key ->
+        # Helicone API key is set but we're not using Gemini API, so ignore Helicone
+        Logger.info("Helicone API key is set but not using Gemini API (base_url: #{configured_base_url}), bypassing Helicone")
+        nil
     end
   end
 
