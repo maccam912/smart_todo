@@ -12,6 +12,8 @@ defmodule SmartTodo.Agent.LlmSession do
   alias SmartTodo.Agent.StateMachine
   alias Req
 
+  require Logger
+
   @status_options ~w(todo in_progress done)a
   @urgency_options ~w(low normal high critical)a
   @recurrence_options ~w(none daily weekly monthly yearly)a
@@ -213,22 +215,60 @@ defmodule SmartTodo.Agent.LlmSession do
   defp default_request(url, payload, opts) do
     api_key_value = Keyword.get(opts, :api_key, api_key())
     headers = normalize_headers(Keyword.get(opts, :headers, []))
+    timeout = Keyword.get(opts, :receive_timeout, default_receive_timeout())
 
     request_options =
       [
         url: url,
         json: payload,
-        receive_timeout: Keyword.get(opts, :receive_timeout, default_receive_timeout())
+        receive_timeout: timeout
       ]
       |> maybe_put_api_key(api_key_value)
       |> maybe_put_headers(headers)
 
+    # Log request details
+    Logger.info("Attempting LLM connection",
+      url: url,
+      timeout_ms: timeout,
+      has_api_key: not is_nil(api_key_value),
+      header_count: length(headers)
+    )
+
     case Req.post(request_options) do
-      {:ok, %Req.Response{status: 200, body: body}} -> {:ok, body}
-      {:ok, %Req.Response{status: status, body: body}} -> {:error, {:http_error, status, body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        Logger.info("LLM request successful", url: url, status: 200)
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        Logger.error("LLM HTTP error",
+          url: url,
+          status: status,
+          body: inspect(body, limit: 500),
+          error_type: :http_error
+        )
+
+        {:error, {:http_error, status, body}}
+
+      {:error, reason} ->
+        Logger.error("LLM connection failed",
+          url: url,
+          timeout_ms: timeout,
+          reason: inspect(reason, limit: 500),
+          error_type: classify_error(reason)
+        )
+
+        {:error, reason}
     end
   end
+
+  defp classify_error(%Mint.TransportError{reason: reason}), do: {:transport_error, reason}
+  defp classify_error(%Mint.HTTPError{reason: reason}), do: {:http_protocol_error, reason}
+  defp classify_error({:timeout, _}), do: :timeout
+  defp classify_error(:timeout), do: :timeout
+  defp classify_error(:econnrefused), do: :connection_refused
+  defp classify_error(:nxdomain), do: :dns_resolution_failed
+  defp classify_error(:closed), do: :connection_closed
+  defp classify_error(_), do: :unknown
 
   defp ensure_default_timeouts(opts) do
     configured_timeout = default_receive_timeout()
