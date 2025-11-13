@@ -36,7 +36,3 @@ npm-debug.log
 /assets/node_modules/
 
 .env
-
-# Ignore downloaded LLM models and llama.cpp build artifacts
-/priv/models/
-/priv/llama.cpp/

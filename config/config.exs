@@ -26,14 +26,6 @@ config :smart_todo,
   ecto_repos: [SmartTodo.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# LLM Provider configuration
-# LLM_BASE_URL: Base URL for the LLM API (defaults to llmaz.rackspace.koski.co)
-# Set to "https://generativelanguage.googleapis.com/v1beta" to use Gemini API directly
-llm_base_url = System.get_env("LLM_BASE_URL", "https://llmaz.rackspace.koski.co/v1beta")
-
-config :smart_todo, :llm,
-  base_url: llm_base_url
-
 # Configures the endpoint
 config :smart_todo, SmartTodoWeb.Endpoint,
   url: [host: "localhost"],
