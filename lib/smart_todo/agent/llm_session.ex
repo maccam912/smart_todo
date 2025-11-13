@@ -18,8 +18,8 @@ defmodule SmartTodo.Agent.LlmSession do
 
   @max_errors 3
   @max_rounds 20
-  @default_model "gemini-2.5-flash"
-  @base_url "https://generativelanguage.googleapis.com/v1beta"
+  @default_model "qwen2.5-3b-instruct"
+  @base_url "https://qwen2-5-3b-instruct.rackspace.koski.co"
   @helicone_base_url "https://gateway.helicone.ai/v1beta"
   @helicone_target_url "https://generativelanguage.googleapis.com"
   @helicone_default_properties %{"App" => "smart_todo"}
@@ -211,16 +211,16 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp default_request(url, payload, opts) do
-    api_key = Keyword.get(opts, :api_key, api_key!())
+    api_key_value = Keyword.get(opts, :api_key, api_key())
     headers = normalize_headers(Keyword.get(opts, :headers, []))
 
     request_options =
       [
         url: url,
-        params: %{key: api_key},
         json: payload,
         receive_timeout: Keyword.get(opts, :receive_timeout, default_receive_timeout())
       ]
+      |> maybe_put_api_key(api_key_value)
       |> maybe_put_headers(headers)
 
     case Req.post(request_options) do
@@ -241,11 +241,8 @@ defmodule SmartTodo.Agent.LlmSession do
     Application.get_env(:smart_todo, :llm_receive_timeout, @default_receive_timeout)
   end
 
-  defp api_key! do
-    case present(System.get_env("GEMINI_API_KEY")) || present(System.get_env("GOOGLE_API_KEY")) do
-      nil -> raise "Environment variable GEMINI_API_KEY or GOOGLE_API_KEY is required"
-      key -> key
-    end
+  defp api_key do
+    present(System.get_env("GEMINI_API_KEY")) || present(System.get_env("GOOGLE_API_KEY"))
   end
 
   defp model_endpoint(model, opts, helicone) do
@@ -253,8 +250,12 @@ defmodule SmartTodo.Agent.LlmSession do
       case Keyword.get(opts, :base_url) do
         nil ->
           case helicone do
-            %{base_url: base_url} -> base_url
-            _ -> @base_url
+            %{base_url: base_url} ->
+              base_url
+
+            _ ->
+              Application.get_env(:smart_todo, :llm, [])
+              |> Keyword.get(:base_url, @base_url)
           end
 
         base_url ->
@@ -370,6 +371,9 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp present(value) when value in [nil, ""], do: nil
   defp present(value), do: value
+
+  defp maybe_put_api_key(opts, nil), do: opts
+  defp maybe_put_api_key(opts, key), do: Keyword.put(opts, :params, %{key: key})
 
   defp maybe_put_headers(opts, []), do: Keyword.delete(opts, :headers)
   defp maybe_put_headers(opts, headers), do: Keyword.put(opts, :headers, headers)
