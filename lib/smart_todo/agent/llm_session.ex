@@ -21,7 +21,7 @@ defmodule SmartTodo.Agent.LlmSession do
   @max_errors 3
   @max_rounds 20
   @default_model "qwen2.5-3b-instruct"
-  @base_url "https://qwen2-5-3b-instruct.rackspace.koski.co"
+  @base_url "https://llmaz.rackspace.koski.co/v1beta"
   @helicone_base_url "https://gateway.helicone.ai/v1beta"
   @helicone_target_url "https://generativelanguage.googleapis.com"
   @helicone_default_properties %{"App" => "smart_todo"}

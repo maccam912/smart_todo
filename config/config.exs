@@ -27,10 +27,10 @@ config :smart_todo,
   generators: [timestamp_type: :utc_datetime]
 
 # LLM Provider configuration
-# LLM_BASE_URL: Base URL for the LLM API (defaults to qwen2-5-3b-instruct.rackspace.koski.co)
+# LLM_BASE_URL: Base URL for the LLM API (defaults to llmaz proxy with qwen2.5-3b-instruct)
 # Set to "https://generativelanguage.googleapis.com/v1beta" to use Gemini API directly
-# Set to "https://llmaz.rackspace.koski.co/v1beta" for the previous default
-llm_base_url = System.get_env("LLM_BASE_URL", "https://qwen2-5-3b-instruct.rackspace.koski.co")
+# The llmaz proxy provides a Gemini-compatible API in front of llama.cpp
+llm_base_url = System.get_env("LLM_BASE_URL", "https://llmaz.rackspace.koski.co/v1beta")
 
 config :smart_todo, :llm,
   base_url: llm_base_url
