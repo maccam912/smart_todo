@@ -10,6 +10,7 @@ defmodule SmartTodo.Agent.LlmSession do
 
   alias SmartTodo.Accounts.Scope
   alias SmartTodo.Agent.StateMachine
+  alias SmartTodo.Agent.LlamaCppAdapter
   alias Req
 
   require Logger
@@ -213,6 +214,24 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp default_request(url, payload, opts) do
+    # Check if this is a Gemini API or a llama.cpp server
+    using_gemini_api? =
+      String.contains?(url, "generativelanguage.googleapis.com") or
+      String.contains?(url, "helicone")
+
+    if using_gemini_api? do
+      gemini_request(url, payload, opts)
+    else
+      # Use adapter for llama.cpp servers
+      Logger.info("Using LlamaCppAdapter for non-Gemini server", url: url)
+
+      # Pass model option to adapter
+      adapter_opts = Keyword.put(opts, :model, "/workspace/models/qwen2.5-3b-instruct-q5_k_m.gguf")
+      LlamaCppAdapter.request(url, payload, adapter_opts)
+    end
+  end
+
+  defp gemini_request(url, payload, opts) do
     api_key_value = Keyword.get(opts, :api_key, api_key())
     headers = normalize_headers(Keyword.get(opts, :headers, []))
     timeout = Keyword.get(opts, :receive_timeout, default_receive_timeout())
