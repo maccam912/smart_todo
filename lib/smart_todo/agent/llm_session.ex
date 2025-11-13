@@ -18,7 +18,7 @@ defmodule SmartTodo.Agent.LlmSession do
 
   @max_errors 3
   @max_rounds 20
-  @default_model "gemini-2.5-flash"
+  @default_model "qwen2.5-3b-instruct"
   @base_url "https://generativelanguage.googleapis.com/v1beta"
   @helicone_base_url "https://gateway.helicone.ai/v1beta"
   @helicone_target_url "https://generativelanguage.googleapis.com"
@@ -253,8 +253,12 @@ defmodule SmartTodo.Agent.LlmSession do
       case Keyword.get(opts, :base_url) do
         nil ->
           case helicone do
-            %{base_url: base_url} -> base_url
-            _ -> @base_url
+            %{base_url: base_url} ->
+              base_url
+
+            _ ->
+              Application.get_env(:smart_todo, :llm, [])
+              |> Keyword.get(:base_url, @base_url)
           end
 
         base_url ->
