@@ -20,9 +20,9 @@ ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 
 FROM ${BUILDER_IMAGE} AS builder
 
-# install build dependencies (including cmake and ninja for llama.cpp)
+# install build dependencies
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential git cmake ninja-build curl libcurl4-openssl-dev \
+  && apt-get install -y --no-install-recommends build-essential git \
   && rm -rf /var/lib/apt/lists/*
 
 # prepare build dir
@@ -34,7 +34,6 @@ RUN mix local.hex --force \
 
 # set build ENV
 ENV MIX_ENV="prod"
-ENV LLM_PROVIDER="local"
 
 # install mix dependencies
 COPY mix.exs mix.lock ./
@@ -71,11 +70,10 @@ RUN mix release
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE} AS final
 
-# Install runtime dependencies including build tools for llama.cpp compilation
+# Install runtime dependencies
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
      libstdc++6 openssl libncurses5 locales ca-certificates \
-     curl git libgomp1 build-essential cmake ninja-build libcurl4-openssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -87,35 +85,17 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 WORKDIR "/app"
-
-# Create directories for llama.cpp and models with appropriate permissions
-RUN mkdir -p /app/priv/llama.cpp /app/priv/models && \
-    chown -R nobody:nogroup /app
+RUN chown nobody:nogroup /app
 
 # set runner ENV
 ENV MIX_ENV="prod"
-ENV LLM_PROVIDER="local"
-ENV LOCAL_MODEL_PATH="/app/priv/models"
-ENV LLAMA_PORT="8080"
-ENV LLAMA_CPP_DIR="/app/priv/llama.cpp"
-ENV MODEL_URL="https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf"
-ENV STARTUP_TIMEOUT="600"
-# FORCE_RECOMPILE defaults to "true" - set to "false" to skip recompilation if binary exists
 
 # Copy the final release from the build stage
 COPY --from=builder --chown=nobody:nogroup /app/_build/${MIX_ENV}/rel/smart_todo ./
 
-RUN chmod +x bin/server bin/migrate bin/entrypoint.sh
-
-# Expose ports for Phoenix and llama.cpp server
-EXPOSE 4000 8080
-
 USER nobody
 
-# If using an environment that doesn't automatically reap zombie processes, it is
-# advised to add an init process such as tini via `apt-get install`
-# above and adding an entrypoint. See https://github.com/krallin/tini for details
-# ENTRYPOINT ["/tini", "--"]
+# Expose port for Phoenix
+EXPOSE 4000
 
-# Use entrypoint script to handle llama-server startup before Elixir app
-CMD ["/app/bin/entrypoint.sh", "/app/bin/server"]
+CMD ["/app/bin/server"]
