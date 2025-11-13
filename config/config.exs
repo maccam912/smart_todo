@@ -30,7 +30,7 @@ config :smart_todo,
 # LLM_BASE_URL: Base URL for the LLM API (defaults to qwen2-5-3b-instruct.rackspace.koski.co)
 # Set to "https://generativelanguage.googleapis.com/v1beta" to use Gemini API directly
 # Set to "https://llmaz.rackspace.koski.co/v1beta" for the previous default
-llm_base_url = System.get_env("LLM_BASE_URL", "https://qwen2-5-3b-instruct.rackspace.koski.co/v1beta")
+llm_base_url = System.get_env("LLM_BASE_URL", "https://qwen2-5-3b-instruct.rackspace.koski.co")
 
 config :smart_todo, :llm,
   base_url: llm_base_url
