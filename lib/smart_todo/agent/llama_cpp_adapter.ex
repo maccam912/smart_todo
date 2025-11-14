@@ -55,8 +55,11 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
     messages = build_openai_messages(payload)
     tools = build_openai_tools(payload["tools"])
 
-    # Get model from opts or use default
-    model = Keyword.get(opts, :model, "/workspace/models/qwen2.5-3b-instruct-q5_k_m.gguf")
+    # Get model from opts, environment variable, or use default
+    # For llama.cpp servers, this can often be omitted or set to a simple identifier
+    model = Keyword.get(opts, :model) ||
+            System.get_env("LLAMA_CPP_MODEL") ||
+            "qwen2.5-3b-instruct"
 
     base = %{
       "model" => model,
@@ -66,9 +69,15 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
     }
 
     if tools && length(tools) > 0 do
+      # Configure tool_choice based on environment or server capabilities
+      # Options: "auto", "required", or "none"
+      # "required" forces tool use (like Gemini's "ANY" mode) but may not be supported by all llama.cpp servers
+      # "auto" is more widely supported and lets the model decide
+      tool_choice = System.get_env("LLAMA_CPP_TOOL_CHOICE", "auto")
+
       Map.merge(base, %{
         "tools" => tools,
-        "tool_choice" => "required"  # Force tool use like Gemini's "ANY" mode
+        "tool_choice" => tool_choice
       })
     else
       base
