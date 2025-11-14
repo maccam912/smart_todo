@@ -22,7 +22,7 @@ defmodule SmartTodo.Agent.LlmSession do
   @max_errors 3
   @max_rounds 20
   @default_model "qwen2.5-3b-instruct"
-  @base_url "https://qwen2-5-3b-instruct.rackspace.koski.co"
+  @base_url "https://llama-cpp.rackspace.koski.co"
   @helicone_base_url "https://gateway.helicone.ai/v1beta"
   @helicone_target_url "https://generativelanguage.googleapis.com"
   @helicone_default_properties %{"App" => "smart_todo"}
@@ -225,9 +225,8 @@ defmodule SmartTodo.Agent.LlmSession do
       # Use adapter for llama.cpp servers
       Logger.info("Using LlamaCppAdapter for non-Gemini server", url: url)
 
-      # Pass model option to adapter
-      adapter_opts = Keyword.put(opts, :model, "/workspace/models/qwen2.5-3b-instruct-q5_k_m.gguf")
-      LlamaCppAdapter.request(url, payload, adapter_opts)
+      # Model configuration is handled by the adapter (via LLAMA_CPP_MODEL env var or default)
+      LlamaCppAdapter.request(url, payload, opts)
     end
   end
 
