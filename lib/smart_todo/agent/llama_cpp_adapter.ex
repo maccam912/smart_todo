@@ -65,7 +65,8 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
       "model" => model,
       "messages" => messages,
       "temperature" => 0.7,
-      "max_tokens" => 2048
+      "max_tokens" => 2048,
+      "cache_prompt" => true
     }
 
     if tools && length(tools) > 0 do
