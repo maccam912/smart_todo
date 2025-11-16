@@ -36,21 +36,64 @@ defmodule SmartTodo.Agent.LlmSession do
     end)
   end
 
+  defp generate_session_id do
+    # Generate UUID v4 for session tracking
+    <<u0::48, _::4, u1::12, _::2, u2::62>> = :crypto.strong_rand_bytes(16)
+    <<u0::48, 4::4, u1::12, 2::2, u2::62>>
+    |> Base.encode16(case: :lower)
+    |> String.replace(~r/(.{8})(.{4})(.{4})(.{4})(.{12})/, "\\1-\\2-\\3-\\4-\\5")
+  end
+
   @spec run(Scope.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term(), map()}
   def run(scope, user_text, opts \\ []) do
-    opts = ensure_default_timeouts(opts)
+    # Generate session ID for OpenInference tracking
+    session_id = generate_session_id()
+    user_id = case scope do
+      %Scope{user: %{id: id}} when not is_nil(id) -> to_string(id)
+      _ -> nil
+    end
 
-    with {:ok, initial} <- build_initial_session(scope, user_text),
-         {:ok, result} <- conversation_loop(initial, opts) do
-      {:ok, result}
-    else
-      {:error, reason, ctx} ->
-        {:error, reason, ctx}
+    opts = opts
+           |> ensure_default_timeouts()
+           |> Keyword.put(:session_id, session_id)
+           |> Keyword.put(:scope, scope)
+
+    # Create agent span wrapping the entire conversation
+    Tracer.with_span "smart_todo.agent.session", %{kind: :internal} do
+      # Set OpenInference agent span attributes
+      base_attributes = [
+        {"openinference.span.kind", "AGENT"},
+        {"session.id", session_id},
+        {"input.value", user_text}
+      ]
+
+      attributes = base_attributes
+                   |> maybe_add_attribute("user.id", user_id)
+
+      Tracer.set_attributes(attributes)
+
+      result = with {:ok, initial} <- build_initial_session(scope, user_text, session_id),
+                    {:ok, result} <- conversation_loop(initial, opts) do
+        {:ok, result}
+      else
+        {:error, reason, ctx} ->
+          {:error, reason, ctx}
+      end
+
+      # Set output value on the agent span
+      case result do
+        {:ok, res} ->
+          Tracer.set_attribute("output.value", format_agent_output(res))
+          result
+        {:error, _reason, _ctx} ->
+          Tracer.set_status(:error, "Agent session failed")
+          result
+      end
     end
   end
 
-  defp build_initial_session(scope, user_text) do
+  defp build_initial_session(scope, user_text, session_id) do
     {machine, response} = StateMachine.start_session(scope)
 
     conversation = [user_turn(user_text, response, :initial)]
@@ -63,7 +106,8 @@ defmodule SmartTodo.Agent.LlmSession do
        executed: [],
        scope: scope,
        user_text: user_text,
-       errors: 0
+       errors: 0,
+       session_id: session_id
      }}
   end
 
@@ -235,6 +279,8 @@ defmodule SmartTodo.Agent.LlmSession do
     api_key_value = Keyword.get(opts, :api_key, api_key())
     headers = normalize_headers(Keyword.get(opts, :headers, []))
     timeout = Keyword.get(opts, :receive_timeout, default_receive_timeout())
+    session_id = Keyword.get(opts, :session_id)
+    user_id = extract_user_id(opts)
 
     request_options =
       [
@@ -250,15 +296,25 @@ defmodule SmartTodo.Agent.LlmSession do
 
     # Start OpenTelemetry span for LLM request
     Tracer.with_span "gen_ai.gemini.chat", %{kind: :client} do
-      # Set semantic convention attributes for GenAI
-      Tracer.set_attributes([
+      # Set semantic convention attributes for GenAI and OpenInference
+      base_attributes = [
         {"gen_ai.system", "gemini"},
         {"gen_ai.request.model", model},
         {"gen_ai.operation.name", "chat"},
         {"server.address", URI.parse(url).host},
         {"http.request.method", "POST"},
-        {"url.full", url}
-      ])
+        {"url.full", url},
+        # OpenInference attributes
+        {"openinference.span.kind", "LLM"},
+        {"input.value", encode_input_value(payload)}
+      ]
+
+      # Add optional OpenInference attributes
+      attributes = base_attributes
+                   |> maybe_add_attribute("session.id", session_id)
+                   |> maybe_add_attribute("user.id", user_id)
+
+      Tracer.set_attributes(attributes)
 
       # Log request details
       Logger.info("Attempting LLM connection",
@@ -272,10 +328,11 @@ defmodule SmartTodo.Agent.LlmSession do
         {:ok, %Req.Response{status: 200, body: body}} ->
           Logger.info("LLM request successful", url: url, status: 200)
 
-          # Set response attributes
+          # Set response attributes including OpenInference output
           Tracer.set_attributes([
             {"http.response.status_code", 200},
-            {"gen_ai.response.finish_reasons", extract_finish_reasons(body)}
+            {"gen_ai.response.finish_reasons", extract_finish_reasons(body)},
+            {"output.value", encode_output_value(body)}
           ])
 
           {:ok, body}
@@ -316,6 +373,71 @@ defmodule SmartTodo.Agent.LlmSession do
     case Regex.run(~r/\/models\/([^:]+)/, url) do
       [_, model] -> model
       _ -> "unknown"
+    end
+  end
+
+  defp extract_user_id(opts) do
+    # Try to get user_id from scope in opts if available
+    case Keyword.get(opts, :scope) do
+      %Scope{user: %{id: id}} when not is_nil(id) -> to_string(id)
+      _ -> nil
+    end
+  end
+
+  defp maybe_add_attribute(attributes, _key, nil), do: attributes
+  defp maybe_add_attribute(attributes, key, value), do: attributes ++ [{key, value}]
+
+  defp encode_input_value(payload) do
+    # Extract the last user message as input
+    case get_in(payload, ["contents"]) do
+      contents when is_list(contents) ->
+        contents
+        |> Enum.reverse()
+        |> Enum.find(fn content -> content["role"] == "user" end)
+        |> case do
+          %{"parts" => parts} when is_list(parts) ->
+            parts
+            |> Enum.map(fn part -> Map.get(part, "text", "") end)
+            |> Enum.join("\n")
+          _ -> Jason.encode!(payload)
+        end
+      _ -> Jason.encode!(payload)
+    end
+  end
+
+  defp encode_output_value(body) do
+    # Extract the model's response text
+    case get_in(body, ["candidates"]) do
+      [candidate | _] ->
+        case get_in(candidate, ["content", "parts"]) do
+          parts when is_list(parts) ->
+            parts
+            |> Enum.map(fn part ->
+              cond do
+                Map.has_key?(part, "text") -> part["text"]
+                Map.has_key?(part, "functionCall") -> Jason.encode!(part["functionCall"])
+                true -> ""
+              end
+            end)
+            |> Enum.join("\n")
+          _ -> Jason.encode!(body)
+        end
+      _ -> Jason.encode!(body)
+    end
+  end
+
+  defp format_agent_output(result) do
+    # Format the agent's final output for tracing
+    case result do
+      %{machine: %{state: state}, last_response: response, executed: executed} ->
+        %{
+          state: state,
+          message: Map.get(response, :message, ""),
+          executed_commands: length(executed),
+          commands: Enum.map(executed, fn cmd -> Map.get(cmd, :name, "unknown") end)
+        }
+        |> Jason.encode!()
+      _ -> Jason.encode!(result)
     end
   end
 

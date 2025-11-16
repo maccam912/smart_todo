@@ -30,11 +30,13 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
 
     receive_timeout = Keyword.get(opts, :receive_timeout, 120_000)
     model = openai_payload["model"]
+    session_id = Keyword.get(opts, :session_id)
+    user_id = extract_user_id(opts)
 
     # Start OpenTelemetry span for LLM request
     Tracer.with_span "gen_ai.llama_cpp.chat", %{kind: :client} do
-      # Set semantic convention attributes for GenAI
-      Tracer.set_attributes([
+      # Set semantic convention attributes for GenAI and OpenInference
+      base_attributes = [
         {"gen_ai.system", "llama_cpp"},
         {"gen_ai.request.model", model},
         {"gen_ai.operation.name", "chat"},
@@ -42,8 +44,18 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
         {"gen_ai.request.max_tokens", openai_payload["max_tokens"]},
         {"server.address", URI.parse(api_url).host},
         {"http.request.method", "POST"},
-        {"url.full", api_url}
-      ])
+        {"url.full", api_url},
+        # OpenInference attributes
+        {"openinference.span.kind", "LLM"},
+        {"input.value", encode_input_value(openai_payload)}
+      ]
+
+      # Add optional OpenInference attributes
+      attributes = base_attributes
+                   |> maybe_add_attribute("session.id", session_id)
+                   |> maybe_add_attribute("user.id", user_id)
+
+      Tracer.set_attributes(attributes)
 
       Logger.info("LlamaCppAdapter making request",
         url: api_url,
@@ -54,12 +66,13 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
         {:ok, %Req.Response{status: 200, body: body}} ->
           Logger.info("LlamaCppAdapter request successful", status: 200)
 
-          # Set response attributes
+          # Set response attributes including OpenInference output
           Tracer.set_attributes([
             {"http.response.status_code", 200},
             {"gen_ai.response.finish_reasons", extract_openai_finish_reason(body)},
             {"gen_ai.usage.input_tokens", get_in(body, ["usage", "prompt_tokens"])},
-            {"gen_ai.usage.output_tokens", get_in(body, ["usage", "completion_tokens"])}
+            {"gen_ai.usage.output_tokens", get_in(body, ["usage", "completion_tokens"])},
+            {"output.value", encode_output_value(body)}
           ])
 
           gemini_response = translate_from_openai(body)
@@ -290,5 +303,46 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
 
   defp generate_tool_call_id do
     "call_#{:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)}"
+  end
+
+  defp extract_user_id(opts) do
+    # Try to get user_id from scope in opts if available
+    case Keyword.get(opts, :scope) do
+      %{user: %{id: id}} when not is_nil(id) -> to_string(id)
+      _ -> nil
+    end
+  end
+
+  defp maybe_add_attribute(attributes, _key, nil), do: attributes
+  defp maybe_add_attribute(attributes, key, value), do: attributes ++ [{key, value}]
+
+  defp encode_input_value(openai_payload) do
+    # Extract the last user message as input
+    case get_in(openai_payload, ["messages"]) do
+      messages when is_list(messages) ->
+        messages
+        |> Enum.reverse()
+        |> Enum.find(fn msg -> msg["role"] == "user" end)
+        |> case do
+          %{"content" => content} when is_binary(content) -> content
+          _ -> Jason.encode!(openai_payload)
+        end
+      _ -> Jason.encode!(openai_payload)
+    end
+  end
+
+  defp encode_output_value(body) do
+    # Extract the assistant's response from OpenAI format
+    case get_in(body, ["choices"]) do
+      [choice | _] ->
+        case get_in(choice, ["message"]) do
+          %{"content" => content} when is_binary(content) ->
+            content
+          %{"tool_calls" => tool_calls} when is_list(tool_calls) ->
+            Jason.encode!(tool_calls)
+          _ -> Jason.encode!(body)
+        end
+      _ -> Jason.encode!(body)
+    end
   end
 end
