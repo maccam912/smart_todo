@@ -75,6 +75,24 @@ defmodule SmartTodoWeb.Telemetry do
           "The time the connection spent waiting before being checked out for the query"
       ),
 
+      # Task Business Metrics
+      counter("smart_todo.tasks.create.count",
+        description: "Total number of tasks created",
+        tags: [:user_id, :status]
+      ),
+      counter("smart_todo.tasks.update.count",
+        description: "Total number of tasks updated",
+        tags: [:user_id, :status]
+      ),
+      counter("smart_todo.tasks.delete.count",
+        description: "Total number of tasks deleted",
+        tags: [:user_id]
+      ),
+      counter("smart_todo.tasks.complete.count",
+        description: "Total number of tasks completed",
+        tags: [:user_id, :recurrence]
+      ),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),

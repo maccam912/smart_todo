@@ -7,23 +7,108 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
-# Configure OpenTelemetry for Phoenix Arize
+# Configure OpenTelemetry
+# Supports standard OTEL env vars (preferred) or Phoenix Arize-specific configuration (fallback)
+otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+otel_traces_endpoint = System.get_env("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+otel_metrics_endpoint = System.get_env("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+otel_logs_endpoint = System.get_env("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+otel_headers_str = System.get_env("OTEL_EXPORTER_OTLP_HEADERS", "")
+otel_protocol = System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+otel_service_name = System.get_env("OTEL_SERVICE_NAME", "smart_todo")
+otel_resource_attributes = System.get_env("OTEL_RESOURCE_ATTRIBUTES", "")
+
+# Phoenix Arize fallback configuration
 phoenix_collector_endpoint = System.get_env("PHOENIX_COLLECTOR_ENDPOINT", "https://phoenix.rackspace.koski.co")
 phoenix_api_key = System.get_env("PHOENIX_API_KEY")
 
-if phoenix_api_key do
+# Parse headers from string format "key1=value1,key2=value2"
+otel_headers =
+  if otel_headers_str != "" do
+    otel_headers_str
+    |> String.split(",")
+    |> Enum.map(fn pair ->
+      [key, value] = String.split(pair, "=", parts: 2)
+      {String.trim(key), String.trim(value)}
+    end)
+  else
+    []
+  end
+
+# Determine final configuration (standard OTLP takes precedence)
+{final_traces_endpoint, final_headers, final_protocol} =
+  cond do
+    otel_traces_endpoint || otel_endpoint ->
+      endpoint = otel_traces_endpoint || otel_endpoint
+      protocol = if otel_protocol == "grpc", do: :grpc, else: :http_protobuf
+      {endpoint, otel_headers, protocol}
+
+    phoenix_api_key ->
+      {
+        "#{phoenix_collector_endpoint}/v1/traces",
+        [{"Authorization", "Bearer #{phoenix_api_key}"}],
+        :http_protobuf
+      }
+
+    true ->
+      {nil, [], :http_protobuf}
+  end
+
+# Configure metrics endpoint
+final_metrics_endpoint =
+  otel_metrics_endpoint || otel_endpoint || (phoenix_api_key && "#{phoenix_collector_endpoint}/v1/metrics")
+
+# Configure logs endpoint
+final_logs_endpoint =
+  otel_logs_endpoint || otel_endpoint || (phoenix_api_key && "#{phoenix_collector_endpoint}/v1/logs")
+
+# Set up resource attributes
+resource_attrs =
+  [{"service.name", otel_service_name}] ++
+    if otel_resource_attributes != "" do
+      otel_resource_attributes
+      |> String.split(",")
+      |> Enum.map(fn pair ->
+        [key, value] = String.split(pair, "=", parts: 2)
+        {String.trim(key), String.trim(value)}
+      end)
+    else
+      []
+    end
+
+# Configure OpenTelemetry resource
+config :opentelemetry, :resource, resource_attrs
+
+# Configure trace exporter
+if final_traces_endpoint do
   config :opentelemetry, :processors,
     otel_batch_processor: %{
       exporter: {:opentelemetry_exporter, %{
-        endpoints: ["#{phoenix_collector_endpoint}/v1/traces"],
-        headers: [{"Authorization", "Bearer #{phoenix_api_key}"}]
+        endpoints: [final_traces_endpoint],
+        headers: final_headers
       }}
     }
 
   config :opentelemetry_exporter,
-    otlp_protocol: :http_protobuf,
-    otlp_endpoint: "#{phoenix_collector_endpoint}",
-    otlp_headers: [{"Authorization", "Bearer #{phoenix_api_key}"}]
+    otlp_protocol: final_protocol,
+    otlp_endpoint: final_traces_endpoint,
+    otlp_headers: final_headers
+end
+
+# Configure metrics exporter
+if final_metrics_endpoint do
+  config :opentelemetry_exporter,
+    otlp_metrics_endpoint: final_metrics_endpoint,
+    otlp_metrics_headers: final_headers,
+    otlp_metrics_protocol: final_protocol
+end
+
+# Configure logs exporter
+if final_logs_endpoint do
+  config :opentelemetry_exporter,
+    otlp_logs_endpoint: final_logs_endpoint,
+    otlp_logs_headers: final_headers,
+    otlp_logs_protocol: final_protocol
 end
 
 # ## Using releases
