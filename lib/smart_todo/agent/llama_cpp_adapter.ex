@@ -5,6 +5,7 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
   """
 
   require Logger
+  require OpenTelemetry.Tracer, as: Tracer
 
   @doc """
   Makes a request to a llama.cpp server, translating from Gemini format.
@@ -28,27 +29,69 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
     api_url = "#{base_url}/v1/chat/completions"
 
     receive_timeout = Keyword.get(opts, :receive_timeout, 120_000)
+    model = openai_payload["model"]
 
-    Logger.info("LlamaCppAdapter making request",
-      url: api_url,
-      timeout_ms: receive_timeout
-    )
+    # Start OpenTelemetry span for LLM request
+    Tracer.with_span "gen_ai.llama_cpp.chat", %{kind: :client} do
+      # Set semantic convention attributes for GenAI
+      Tracer.set_attributes([
+        {"gen_ai.system", "llama_cpp"},
+        {"gen_ai.request.model", model},
+        {"gen_ai.operation.name", "chat"},
+        {"gen_ai.request.temperature", openai_payload["temperature"]},
+        {"gen_ai.request.max_tokens", openai_payload["max_tokens"]},
+        {"server.address", URI.parse(api_url).host},
+        {"http.request.method", "POST"},
+        {"url.full", api_url}
+      ])
 
-    case Req.post(url: api_url, json: openai_payload, receive_timeout: receive_timeout) do
-      {:ok, %Req.Response{status: 200, body: body}} ->
-        Logger.info("LlamaCppAdapter request successful", status: 200)
-        gemini_response = translate_from_openai(body)
-        {:ok, gemini_response}
+      Logger.info("LlamaCppAdapter making request",
+        url: api_url,
+        timeout_ms: receive_timeout
+      )
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        Logger.error("llama.cpp request failed: #{status} - #{inspect(body)}")
-        {:error, {:http_error, status, body}}
+      case Req.post(url: api_url, json: openai_payload, receive_timeout: receive_timeout) do
+        {:ok, %Req.Response{status: 200, body: body}} ->
+          Logger.info("LlamaCppAdapter request successful", status: 200)
 
-      {:error, reason} ->
-        Logger.error("llama.cpp request error: #{inspect(reason)}")
-        {:error, reason}
+          # Set response attributes
+          Tracer.set_attributes([
+            {"http.response.status_code", 200},
+            {"gen_ai.response.finish_reasons", extract_openai_finish_reason(body)},
+            {"gen_ai.usage.input_tokens", get_in(body, ["usage", "prompt_tokens"])},
+            {"gen_ai.usage.output_tokens", get_in(body, ["usage", "completion_tokens"])}
+          ])
+
+          gemini_response = translate_from_openai(body)
+          {:ok, gemini_response}
+
+        {:ok, %Req.Response{status: status, body: body}} ->
+          Logger.error("llama.cpp request failed: #{status} - #{inspect(body)}")
+
+          Tracer.set_attributes([
+            {"http.response.status_code", status},
+            {"error", true}
+          ])
+          Tracer.set_status(:error, "HTTP error: #{status}")
+
+          {:error, {:http_error, status, body}}
+
+        {:error, reason} ->
+          Logger.error("llama.cpp request error: #{inspect(reason)}")
+
+          Tracer.set_attributes([{"error", true}])
+          Tracer.set_status(:error, "Request failed: #{inspect(reason)}")
+
+          {:error, reason}
+      end
     end
   end
+
+  defp extract_openai_finish_reason(%{"choices" => [choice | _]}) do
+    Map.get(choice, "finish_reason", "unknown")
+  end
+
+  defp extract_openai_finish_reason(_), do: "unknown"
 
   # Translate Gemini API format to OpenAI format
   defp translate_to_openai(payload, opts) do
