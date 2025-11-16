@@ -4,6 +4,8 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
   and llama.cpp's OpenAI-compatible API format.
   """
 
+  alias SmartTodo.Agent.LangfuseTracker
+
   require Logger
 
   @doc """
@@ -19,6 +21,7 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
   """
   def request(url, payload, opts \\ []) do
     openai_payload = translate_to_openai(payload, opts)
+    trace_id = Keyword.get(opts, :trace_id)
 
     # Extract base URL (remove /models/... part if present)
     base_url = url
@@ -34,19 +37,40 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
       timeout_ms: receive_timeout
     )
 
-    case Req.post(url: api_url, json: openai_payload, receive_timeout: receive_timeout) do
-      {:ok, %Req.Response{status: 200, body: body}} ->
-        Logger.info("LlamaCppAdapter request successful", status: 200)
-        gemini_response = translate_from_openai(body)
-        {:ok, gemini_response}
+    # Wrap API call with Langfuse tracking
+    api_call_fn = fn ->
+      case Req.post(url: api_url, json: openai_payload, receive_timeout: receive_timeout) do
+        {:ok, %Req.Response{status: 200, body: body}} ->
+          Logger.info("LlamaCppAdapter request successful", status: 200)
+          gemini_response = translate_from_openai(body)
+          {:ok, gemini_response}
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        Logger.error("llama.cpp request failed: #{status} - #{inspect(body)}")
-        {:error, {:http_error, status, body}}
+        {:ok, %Req.Response{status: status, body: body}} ->
+          Logger.error("llama.cpp request failed: #{status} - #{inspect(body)}")
+          {:error, {:http_error, status, body}}
 
-      {:error, reason} ->
-        Logger.error("llama.cpp request error: #{inspect(reason)}")
-        {:error, reason}
+        {:error, reason} ->
+          Logger.error("llama.cpp request error: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+
+    if trace_id do
+      generation_id = LangfuseTracker.generate_generation_id("llama-cpp")
+
+      LangfuseTracker.track_llm_call(
+        trace_id,
+        generation_id,
+        [
+          name: "llama-cpp-api-call",
+          model: openai_payload["model"],
+          input: openai_payload,
+          metadata: %{url: api_url, provider: "llama.cpp"}
+        ],
+        api_call_fn
+      )
+    else
+      api_call_fn.()
     end
   end
 

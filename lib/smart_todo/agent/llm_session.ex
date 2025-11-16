@@ -11,6 +11,7 @@ defmodule SmartTodo.Agent.LlmSession do
   alias SmartTodo.Accounts.Scope
   alias SmartTodo.Agent.StateMachine
   alias SmartTodo.Agent.LlamaCppAdapter
+  alias SmartTodo.Agent.LangfuseTracker
   alias Req
 
   require Logger
@@ -54,6 +55,15 @@ defmodule SmartTodo.Agent.LlmSession do
 
     conversation = [user_turn(user_text, response, :initial)]
 
+    # Create Langfuse trace for this session
+    trace_id = LangfuseTracker.generate_trace_id("llm-session")
+
+    LangfuseTracker.create_trace(trace_id, %{
+      user_id: scope.user_id,
+      scope_type: "todos",
+      user_text: user_text
+    })
+
     {:ok,
      %{
        machine: machine,
@@ -62,7 +72,8 @@ defmodule SmartTodo.Agent.LlmSession do
        executed: [],
        scope: scope,
        user_text: user_text,
-       errors: 0
+       errors: 0,
+       trace_id: trace_id
      }}
   end
 
@@ -103,7 +114,10 @@ defmodule SmartTodo.Agent.LlmSession do
             "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}
           }
 
-        request_opts = maybe_put_scope_helicone_properties(opts, ctx.scope)
+        request_opts =
+          opts
+          |> maybe_put_scope_helicone_properties(ctx.scope)
+          |> Keyword.put(:trace_id, ctx.trace_id)
 
         case request_command(payload, ctx.last_response, request_opts) do
           {:ok, call, body} ->
@@ -234,6 +248,7 @@ defmodule SmartTodo.Agent.LlmSession do
     api_key_value = Keyword.get(opts, :api_key, api_key())
     headers = normalize_headers(Keyword.get(opts, :headers, []))
     timeout = Keyword.get(opts, :receive_timeout, default_receive_timeout())
+    trace_id = Keyword.get(opts, :trace_id)
 
     request_options =
       [
@@ -252,30 +267,54 @@ defmodule SmartTodo.Agent.LlmSession do
       header_count: length(headers)
     )
 
-    case Req.post(request_options) do
-      {:ok, %Req.Response{status: 200, body: body}} ->
-        Logger.info("LLM request successful", url: url, status: 200)
-        {:ok, body}
+    # Extract model from URL
+    model = extract_model_from_url(url)
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        Logger.error("LLM HTTP error",
-          url: url,
-          status: status,
-          body: inspect(body, limit: 500),
-          error_type: :http_error
-        )
+    # Wrap API call with Langfuse tracking
+    api_call_fn = fn ->
+      case Req.post(request_options) do
+        {:ok, %Req.Response{status: 200, body: body}} ->
+          Logger.info("LLM request successful", url: url, status: 200)
+          {:ok, body}
 
-        {:error, {:http_error, status, body}}
+        {:ok, %Req.Response{status: status, body: body}} ->
+          Logger.error("LLM HTTP error",
+            url: url,
+            status: status,
+            body: inspect(body, limit: 500),
+            error_type: :http_error
+          )
 
-      {:error, reason} ->
-        Logger.error("LLM connection failed",
-          url: url,
-          timeout_ms: timeout,
-          reason: inspect(reason, limit: 500),
-          error_type: classify_error(reason)
-        )
+          {:error, {:http_error, status, body}}
 
-        {:error, reason}
+        {:error, reason} ->
+          Logger.error("LLM connection failed",
+            url: url,
+            timeout_ms: timeout,
+            reason: inspect(reason, limit: 500),
+            error_type: classify_error(reason)
+          )
+
+          {:error, reason}
+      end
+    end
+
+    if trace_id do
+      generation_id = LangfuseTracker.generate_generation_id("gemini")
+
+      LangfuseTracker.track_llm_call(
+        trace_id,
+        generation_id,
+        [
+          name: "gemini-api-call",
+          model: model,
+          input: payload,
+          metadata: %{url: url, provider: "gemini"}
+        ],
+        api_call_fn
+      )
+    else
+      api_call_fn.()
     end
   end
 
@@ -301,6 +340,14 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp api_key do
     present(System.get_env("GEMINI_API_KEY")) || present(System.get_env("GOOGLE_API_KEY"))
+  end
+
+  defp extract_model_from_url(url) do
+    # Extract model name from URL like /models/gemini-2.0-flash:generateContent
+    case Regex.run(~r{/models/([^:/]+)}, url) do
+      [_, model] -> model
+      _ -> "unknown"
+    end
   end
 
   defp model_endpoint(model, opts, helicone) do

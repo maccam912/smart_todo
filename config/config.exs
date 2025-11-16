@@ -35,6 +35,16 @@ llm_base_url = System.get_env("LLM_BASE_URL", "https://llama-cpp.rackspace.koski
 config :smart_todo, :llm,
   base_url: llm_base_url
 
+# Langfuse configuration for LLM observability
+# LANGFUSE_HOST: Your Langfuse host URL
+# LANGFUSE_PUBLIC_KEY: Public key from Langfuse organization settings
+# LANGFUSE_SECRET_KEY: Secret key from Langfuse organization settings
+config :langfuse_sdk,
+  host: System.get_env("LANGFUSE_HOST", "https://langfuse.rackspace.koski.co"),
+  public_key: System.get_env("LANGFUSE_PUBLIC_KEY"),
+  secret_key: System.get_env("LANGFUSE_SECRET_KEY"),
+  enabled: System.get_env("LANGFUSE_ENABLED", "true") == "true"
+
 # Configures the endpoint
 config :smart_todo, SmartTodoWeb.Endpoint,
   url: [host: "localhost"],

@@ -47,6 +47,55 @@ export HELICONE_API_KEY="your-helicone-key"
 - `HELICONE_BASE_URL`: Helicone base URL (default: `https://gateway.helicone.ai/v1beta`)
 - `HELICONE_TARGET_URL`: Target URL for Helicone proxy (default: `https://generativelanguage.googleapis.com`)
 
+## Langfuse Integration
+
+SmartTodo integrates with Langfuse for comprehensive LLM observability and monitoring. Langfuse tracks all API calls (both Gemini and local llama.cpp) including:
+
+- Request/response payloads
+- Token usage statistics
+- Latency metrics
+- Error tracking
+- Conversation traces
+
+### Configuration
+
+To enable Langfuse tracking, configure the following environment variables:
+
+```bash
+export LANGFUSE_HOST="https://langfuse.rackspace.koski.co"
+export LANGFUSE_PUBLIC_KEY="your-public-key"
+export LANGFUSE_SECRET_KEY="your-secret-key"
+export LANGFUSE_ENABLED="true"  # Optional: defaults to true
+```
+
+You can find your Langfuse API keys in your organization settings within the Langfuse dashboard.
+
+### Disabling Langfuse
+
+To temporarily disable Langfuse tracking without removing your credentials:
+
+```bash
+export LANGFUSE_ENABLED="false"
+```
+
+Langfuse will also be automatically disabled if the public or secret keys are not configured.
+
+### What Gets Tracked
+
+Each LLM session creates a trace in Langfuse containing:
+
+- **Trace metadata**: User ID, scope type, original user request
+- **Generation data**: For each API call:
+  - Model name (e.g., `gemini-2.0-flash`, `qwen2.5-3b-instruct`)
+  - Input payload (system prompts, conversation history, tools)
+  - Output response
+  - Token usage (for supported models)
+  - Request duration
+  - Provider information (Gemini or llama.cpp)
+  - Error details (if the request failed)
+
+This data is sent to your configured Langfuse instance for analysis and monitoring.
+
 ## Learn more
 
 * Official website: https://www.phoenixframework.org/
