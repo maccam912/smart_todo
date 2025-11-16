@@ -8,7 +8,7 @@ defmodule SmartTodo.Application do
   @impl true
   def start(_type, _args) do
     # Set up OpenTelemetry instrumentation
-    OpentelemetryPhoenix.setup()
+    OpentelemetryPhoenix.setup(adapter: :bandit)
     OpentelemetryEcto.setup([:smart_todo, :repo])
 
     children = [

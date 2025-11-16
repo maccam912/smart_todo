@@ -21,7 +21,7 @@ defmodule SmartTodo.MixProject do
   def application do
     [
       mod: {SmartTodo.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :inets, :ssl]
     ]
   end
 
@@ -72,6 +72,7 @@ defmodule SmartTodo.MixProject do
       {:opentelemetry, "~> 1.5"},
       {:opentelemetry_api, "~> 1.4"},
       {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_bandit, "~> 0.2"},
       {:opentelemetry_ecto, "~> 1.2"}
     ]
   end
