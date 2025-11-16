@@ -73,7 +73,9 @@ defmodule SmartTodo.MixProject do
       {:opentelemetry_api, "~> 1.4"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.2"},
-      {:opentelemetry_ecto, "~> 1.2"}
+      {:opentelemetry_ecto, "~> 1.2"},
+      {:opentelemetry_logger_metadata, "~> 1.0"},
+      {:opentelemetry_telemetry, "~> 1.1"}
     ]
   end
 

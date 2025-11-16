@@ -11,6 +11,18 @@ defmodule SmartTodo.Application do
     OpentelemetryPhoenix.setup(adapter: :bandit)
     OpentelemetryEcto.setup([:smart_todo, :repo])
 
+    # Attach OpenTelemetry logger metadata handler for trace correlation
+    :opentelemetry_logger_metadata.setup()
+
+    # Configure logger to include trace context
+    :logger.add_handler(:otel_logger, :otel_logger_handler, %{
+      config: %{},
+      level: :info
+    })
+
+    # Set up OpenTelemetry metrics bridge from Elixir telemetry
+    setup_telemetry_metrics()
+
     children = [
       SmartTodoWeb.Telemetry,
       SmartTodo.Repo,
@@ -35,5 +47,25 @@ defmodule SmartTodo.Application do
   def config_change(changed, _new, removed) do
     SmartTodoWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  # Set up OpenTelemetry metrics from Elixir telemetry events
+  defp setup_telemetry_metrics do
+    # Convert telemetry events to OpenTelemetry metrics
+    OpentelemetryTelemetry.attach_handler(:task_create_counter,
+      [:smart_todo, :tasks, :create],
+      %{unit: "{task}", description: "Number of tasks created"})
+
+    OpentelemetryTelemetry.attach_handler(:task_update_counter,
+      [:smart_todo, :tasks, :update],
+      %{unit: "{task}", description: "Number of tasks updated"})
+
+    OpentelemetryTelemetry.attach_handler(:task_delete_counter,
+      [:smart_todo, :tasks, :delete],
+      %{unit: "{task}", description: "Number of tasks deleted"})
+
+    OpentelemetryTelemetry.attach_handler(:task_complete_counter,
+      [:smart_todo, :tasks, :complete],
+      %{unit: "{task}", description: "Number of tasks completed"})
   end
 end

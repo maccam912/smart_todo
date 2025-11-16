@@ -9,6 +9,8 @@ defmodule SmartTodo.Tasks do
   alias SmartTodo.Accounts.GroupMembership
   alias SmartTodo.Tasks.{Task, TaskDependency}
 
+  require OpenTelemetry.Tracer, as: Tracer
+
   @type scope :: %Scope{user: SmartTodo.Accounts.User.t()}
 
   defp user_id!(%Scope{user: %{id: id}}), do: id
@@ -77,40 +79,68 @@ defmodule SmartTodo.Tasks do
   Accepts `:prerequisite_ids` for initial dependencies.
   """
   def create_task(current_scope, attrs) when is_map(attrs) do
-    uid = user_id!(current_scope)
+    Tracer.with_span "smart_todo.tasks.create", kind: :internal do
+      uid = user_id!(current_scope)
 
-    {attrs, prereq_ids, _present?} = split_prereq_params(attrs)
+      Tracer.set_attributes([
+        {"user.id", uid},
+        {"task.title", Map.get(attrs, "title") || Map.get(attrs, :title)}
+      ])
 
-    # Default assignee to owner if no assignment is specified
-    attrs =
-      if not Map.has_key?(attrs, "assignee_id") and not Map.has_key?(attrs, :assignee_id) and
-           not Map.has_key?(attrs, "assigned_group_id") and
-           not Map.has_key?(attrs, :assigned_group_id) do
-        attrs
-        |> Map.put("assignee_id", uid)
-        |> Map.delete(:assignee_id)
-      else
-        attrs
-      end
+      {attrs, prereq_ids, _present?} = split_prereq_params(attrs)
 
-    attrs = stringify_keys(attrs)
+      # Default assignee to owner if no assignment is specified
+      attrs =
+        if not Map.has_key?(attrs, "assignee_id") and not Map.has_key?(attrs, :assignee_id) and
+             not Map.has_key?(attrs, "assigned_group_id") and
+             not Map.has_key?(attrs, :assigned_group_id) do
+          attrs
+          |> Map.put("assignee_id", uid)
+          |> Map.delete(:assignee_id)
+        else
+          attrs
+        end
 
-    %Task{user_id: uid}
-    |> Task.changeset(attrs)
-    |> Repo.insert()
-    |> case do
-      {:ok, task} ->
-        _ =
-          if prereq_ids == [] do
-            :ok
-          else
-            upsert_dependencies(current_scope, task.id, prereq_ids)
-          end
+      attrs = stringify_keys(attrs)
 
-        {:ok, get_task!(current_scope, task.id)}
+      result =
+        %Task{user_id: uid}
+        |> Task.changeset(attrs)
+        |> Repo.insert()
+        |> case do
+          {:ok, task} ->
+            _ =
+              if prereq_ids == [] do
+                :ok
+              else
+                upsert_dependencies(current_scope, task.id, prereq_ids)
+              end
 
-      error ->
-        error
+            Tracer.set_attributes([
+              {"task.id", task.id},
+              {"task.status", to_string(task.status)}
+            ])
+
+            # Emit telemetry event for metrics
+            :telemetry.execute(
+              [:smart_todo, :tasks, :create],
+              %{count: 1},
+              %{user_id: uid, status: task.status}
+            )
+
+            {:ok, get_task!(current_scope, task.id)}
+
+          {:error, changeset} = error ->
+            Tracer.set_status(:error, "Failed to create task")
+            Tracer.add_event("task.create.error", %{
+              "error.type" => "validation_error",
+              "error.details" => inspect(changeset.errors)
+            })
+
+            error
+        end
+
+      result
     end
   end
 
@@ -118,28 +148,56 @@ defmodule SmartTodo.Tasks do
   Updates a task owned by the current user.
   """
   def update_task(current_scope, %Task{} = task, attrs) when is_map(attrs) do
-    _uid = user_id!(current_scope)
+    Tracer.with_span "smart_todo.tasks.update", kind: :internal do
+      uid = user_id!(current_scope)
 
-    {attrs, prereq_ids, prereq_present?} = split_prereq_params(attrs)
-    attrs = stringify_keys(attrs)
+      Tracer.set_attributes([
+        {"user.id", uid},
+        {"task.id", task.id},
+        {"task.previous_status", to_string(task.status)}
+      ])
 
-    task
-    |> Task.changeset(attrs)
-    |> Repo.update()
-    |> case do
-      {:ok, task} ->
-        task =
-          if prereq_present? do
-            _ = upsert_dependencies(current_scope, task.id, prereq_ids)
-            get_task!(current_scope, task.id)
-          else
-            task
-          end
+      {attrs, prereq_ids, prereq_present?} = split_prereq_params(attrs)
+      attrs = stringify_keys(attrs)
 
-        {:ok, task}
+      result =
+        task
+        |> Task.changeset(attrs)
+        |> Repo.update()
+        |> case do
+          {:ok, task} ->
+            task =
+              if prereq_present? do
+                _ = upsert_dependencies(current_scope, task.id, prereq_ids)
+                get_task!(current_scope, task.id)
+              else
+                task
+              end
 
-      error ->
-        error
+            Tracer.set_attributes([
+              {"task.new_status", to_string(task.status)}
+            ])
+
+            # Emit telemetry event for metrics
+            :telemetry.execute(
+              [:smart_todo, :tasks, :update],
+              %{count: 1},
+              %{user_id: uid, task_id: task.id, status: task.status}
+            )
+
+            {:ok, task}
+
+          {:error, changeset} = error ->
+            Tracer.set_status(:error, "Failed to update task")
+            Tracer.add_event("task.update.error", %{
+              "error.type" => "validation_error",
+              "error.details" => inspect(changeset.errors)
+            })
+
+            error
+        end
+
+      result
     end
   end
 
@@ -147,9 +205,37 @@ defmodule SmartTodo.Tasks do
   Deletes a task owned by the current user along with its dependencies.
   """
   def delete_task(current_scope, %Task{} = task) do
-    _uid = user_id!(current_scope)
+    Tracer.with_span "smart_todo.tasks.delete", kind: :internal do
+      uid = user_id!(current_scope)
 
-    Repo.delete(task)
+      Tracer.set_attributes([
+        {"user.id", uid},
+        {"task.id", task.id},
+        {"task.status", to_string(task.status)}
+      ])
+
+      result = Repo.delete(task)
+
+      case result do
+        {:ok, _} ->
+          Tracer.add_event("task.deleted", %{})
+
+          # Emit telemetry event for metrics
+          :telemetry.execute(
+            [:smart_todo, :tasks, :delete],
+            %{count: 1},
+            %{user_id: uid, task_id: task.id}
+          )
+
+        {:error, changeset} ->
+          Tracer.set_status(:error, "Failed to delete task")
+          Tracer.add_event("task.delete.error", %{
+            "error.details" => inspect(changeset.errors)
+          })
+      end
+
+      result
+    end
   end
 
   def delete_task(current_scope, id) when is_integer(id) do
@@ -162,45 +248,79 @@ defmodule SmartTodo.Tasks do
   recurrence, it will create the next instance with the due date advanced.
   """
   def complete_task(current_scope, %Task{} = task) do
-    _uid = user_id!(current_scope)
+    Tracer.with_span "smart_todo.tasks.complete", kind: :internal do
+      uid = user_id!(current_scope)
 
-    task = Repo.preload(task, :prerequisites)
-    prerequisites_done? = Enum.all?(task.prerequisites, &(&1.status == :done))
+      Tracer.set_attributes([
+        {"user.id", uid},
+        {"task.id", task.id},
+        {"task.recurrence", to_string(task.recurrence)}
+      ])
 
-    cs =
-      task
-      |> Task.changeset(%{status: :done})
-      |> Task.validate_can_complete(prerequisites_done?)
+      task = Repo.preload(task, :prerequisites)
+      prerequisites_done? = Enum.all?(task.prerequisites, &(&1.status == :done))
 
-    Repo.transaction(fn ->
-      case Repo.update(cs) do
-        {:ok, task} ->
-          if task.recurrence != :none do
-            next_due = advance_due_date(task.due_date, task.recurrence)
+      Tracer.set_attributes([
+        {"task.prerequisites_count", length(task.prerequisites)},
+        {"task.prerequisites_done", prerequisites_done?}
+      ])
 
-            _ =
-              %Task{
-                user_id: task.user_id,
-                assignee_id: task.assignee_id,
-                assigned_group_id: task.assigned_group_id
-              }
-              |> Task.changeset(%{
-                title: task.title,
-                description: task.description,
-                urgency: task.urgency,
-                due_date: next_due,
-                recurrence: task.recurrence,
-                status: :todo
+      cs =
+        task
+        |> Task.changeset(%{status: :done})
+        |> Task.validate_can_complete(prerequisites_done?)
+
+      result =
+        Repo.transaction(fn ->
+          case Repo.update(cs) do
+            {:ok, task} ->
+              Tracer.add_event("task.completed", %{})
+
+              # Emit telemetry event for metrics
+              :telemetry.execute(
+                [:smart_todo, :tasks, :complete],
+                %{count: 1},
+                %{user_id: uid, task_id: task.id, recurrence: task.recurrence}
+              )
+
+              if task.recurrence != :none do
+                next_due = advance_due_date(task.due_date, task.recurrence)
+
+                _ =
+                  %Task{
+                    user_id: task.user_id,
+                    assignee_id: task.assignee_id,
+                    assigned_group_id: task.assigned_group_id
+                  }
+                  |> Task.changeset(%{
+                    title: task.title,
+                    description: task.description,
+                    urgency: task.urgency,
+                    due_date: next_due,
+                    recurrence: task.recurrence,
+                    status: :todo
+                  })
+                  |> Repo.insert()
+
+                Tracer.add_event("task.recurrence.created", %{
+                  "next_due_date" => to_string(next_due)
+                })
+              end
+
+              task
+
+            {:error, cs} ->
+              Tracer.set_status(:error, "Failed to complete task")
+              Tracer.add_event("task.complete.error", %{
+                "error.details" => inspect(cs.errors)
               })
-              |> Repo.insert()
+
+              Repo.rollback(cs)
           end
+        end)
 
-          task
-
-        {:error, cs} ->
-          Repo.rollback(cs)
-      end
-    end)
+      result
+    end
   end
 
   defp advance_due_date(nil, _), do: nil
