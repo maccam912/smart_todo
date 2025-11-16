@@ -14,6 +14,7 @@ defmodule SmartTodo.Agent.LlmSession do
   alias Req
 
   require Logger
+  require OpenTelemetry.Tracer, as: Tracer
 
   @status_options ~w(todo in_progress done)a
   @urgency_options ~w(low normal high critical)a
@@ -244,40 +245,87 @@ defmodule SmartTodo.Agent.LlmSession do
       |> maybe_put_api_key(api_key_value)
       |> maybe_put_headers(headers)
 
-    # Log request details
-    Logger.info("Attempting LLM connection",
-      url: url,
-      timeout_ms: timeout,
-      has_api_key: not is_nil(api_key_value),
-      header_count: length(headers)
-    )
+    # Extract model from URL for tracing
+    model = extract_model_from_url(url)
 
-    case Req.post(request_options) do
-      {:ok, %Req.Response{status: 200, body: body}} ->
-        Logger.info("LLM request successful", url: url, status: 200)
-        {:ok, body}
+    # Start OpenTelemetry span for LLM request
+    Tracer.with_span "gen_ai.gemini.chat", %{kind: :client} do
+      # Set semantic convention attributes for GenAI
+      Tracer.set_attributes([
+        {"gen_ai.system", "gemini"},
+        {"gen_ai.request.model", model},
+        {"gen_ai.operation.name", "chat"},
+        {"server.address", URI.parse(url).host},
+        {"http.request.method", "POST"},
+        {"url.full", url}
+      ])
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        Logger.error("LLM HTTP error",
-          url: url,
-          status: status,
-          body: inspect(body, limit: 500),
-          error_type: :http_error
-        )
+      # Log request details
+      Logger.info("Attempting LLM connection",
+        url: url,
+        timeout_ms: timeout,
+        has_api_key: not is_nil(api_key_value),
+        header_count: length(headers)
+      )
 
-        {:error, {:http_error, status, body}}
+      case Req.post(request_options) do
+        {:ok, %Req.Response{status: 200, body: body}} ->
+          Logger.info("LLM request successful", url: url, status: 200)
 
-      {:error, reason} ->
-        Logger.error("LLM connection failed",
-          url: url,
-          timeout_ms: timeout,
-          reason: inspect(reason, limit: 500),
-          error_type: classify_error(reason)
-        )
+          # Set response attributes
+          Tracer.set_attributes([
+            {"http.response.status_code", 200},
+            {"gen_ai.response.finish_reasons", extract_finish_reasons(body)}
+          ])
 
-        {:error, reason}
+          {:ok, body}
+
+        {:ok, %Req.Response{status: status, body: body}} ->
+          Logger.error("LLM HTTP error",
+            url: url,
+            status: status,
+            body: inspect(body, limit: 500),
+            error_type: :http_error
+          )
+
+          Tracer.set_attributes([
+            {"http.response.status_code", status},
+            {"error", true}
+          ])
+          Tracer.set_status(:error, "HTTP error: #{status}")
+
+          {:error, {:http_error, status, body}}
+
+        {:error, reason} ->
+          Logger.error("LLM connection failed",
+            url: url,
+            timeout_ms: timeout,
+            reason: inspect(reason, limit: 500),
+            error_type: classify_error(reason)
+          )
+
+          Tracer.set_attributes([{"error", true}])
+          Tracer.set_status(:error, "Request failed: #{inspect(reason)}")
+
+          {:error, reason}
+      end
     end
   end
+
+  defp extract_model_from_url(url) do
+    case Regex.run(~r/\/models\/([^:]+)/, url) do
+      [_, model] -> model
+      _ -> "unknown"
+    end
+  end
+
+  defp extract_finish_reasons(%{"candidates" => candidates}) when is_list(candidates) do
+    candidates
+    |> Enum.map(fn candidate -> Map.get(candidate, "finishReason", "UNKNOWN") end)
+    |> Enum.join(",")
+  end
+
+  defp extract_finish_reasons(_), do: "UNKNOWN"
 
   defp classify_error(%Mint.TransportError{reason: reason}), do: {:transport_error, reason}
   defp classify_error(%Mint.HTTPError{reason: reason}), do: {:http_protocol_error, reason}
