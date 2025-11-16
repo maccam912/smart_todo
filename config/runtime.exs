@@ -7,6 +7,25 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
+# Configure OpenTelemetry for Phoenix Arize
+phoenix_collector_endpoint = System.get_env("PHOENIX_COLLECTOR_ENDPOINT", "https://phoenix.rackspace.koski.co")
+phoenix_api_key = System.get_env("PHOENIX_API_KEY")
+
+if phoenix_api_key do
+  config :opentelemetry, :processors,
+    otel_batch_processor: %{
+      exporter: {:opentelemetry_exporter, %{
+        endpoints: ["#{phoenix_collector_endpoint}/v1/traces"],
+        headers: [{"authorization", "Bearer #{phoenix_api_key}"}]
+      }}
+    }
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :http_protobuf,
+    otlp_endpoint: "#{phoenix_collector_endpoint}",
+    otlp_headers: [{"authorization", "Bearer #{phoenix_api_key}"}]
+end
+
 # ## Using releases
 #
 # If you use `mix release`, you need to explicitly enable the server

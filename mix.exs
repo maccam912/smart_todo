@@ -67,7 +67,12 @@ defmodule SmartTodo.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:open_api_spex, "~> 3.21"}
+      {:open_api_spex, "~> 3.21"},
+      {:opentelemetry_exporter, "~> 1.9"},
+      {:opentelemetry, "~> 1.5"},
+      {:opentelemetry_api, "~> 1.4"},
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_ecto, "~> 1.2"}
     ]
   end
 
