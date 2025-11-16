@@ -47,6 +47,28 @@ export HELICONE_API_KEY="your-helicone-key"
 - `HELICONE_BASE_URL`: Helicone base URL (default: `https://gateway.helicone.ai/v1beta`)
 - `HELICONE_TARGET_URL`: Target URL for Helicone proxy (default: `https://generativelanguage.googleapis.com`)
 
+## Phoenix Arize Observability
+
+SmartTodo integrates with Phoenix Arize for comprehensive observability using OpenTelemetry. To enable Phoenix Arize:
+
+```bash
+export PHOENIX_API_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJBcGlLZXk6MSJ9.L_n-LclXtLE1_d7b3g6f5Jwmj-5f2552KCZ53uzQvG0"
+export PHOENIX_COLLECTOR_ENDPOINT="https://phoenix.rackspace.koski.co"
+```
+
+Or use the OTEL_EXPORTER_OTLP_HEADERS format:
+
+```bash
+export OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJBcGlLZXk6MSJ9.L_n-LclXtLE1_d7b3g6f5Jwmj-5f2552KCZ53uzQvG0'
+```
+
+When configured, SmartTodo will automatically export:
+- Phoenix HTTP request traces
+- Ecto database query traces
+- Custom application spans and metrics
+
+View your traces and metrics at: https://phoenix.rackspace.koski.co
+
 ## Learn more
 
 * Official website: https://www.phoenixframework.org/
