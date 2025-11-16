@@ -16,14 +16,14 @@ if phoenix_api_key do
     otel_batch_processor: %{
       exporter: {:opentelemetry_exporter, %{
         endpoints: ["#{phoenix_collector_endpoint}/v1/traces"],
-        headers: [{"authorization", "Bearer #{phoenix_api_key}"}]
+        headers: [{"Authorization", "Bearer #{phoenix_api_key}"}]
       }}
     }
 
   config :opentelemetry_exporter,
     otlp_protocol: :http_protobuf,
     otlp_endpoint: "#{phoenix_collector_endpoint}",
-    otlp_headers: [{"authorization", "Bearer #{phoenix_api_key}"}]
+    otlp_headers: [{"Authorization", "Bearer #{phoenix_api_key}"}]
 end
 
 # ## Using releases
