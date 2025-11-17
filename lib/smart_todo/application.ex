@@ -14,12 +14,6 @@ defmodule SmartTodo.Application do
     # Attach OpenTelemetry logger metadata handler for trace correlation
     :opentelemetry_logger_metadata.setup()
 
-    # Configure logger to include trace context
-    :logger.add_handler(:otel_logger, :otel_logger_handler, %{
-      config: %{},
-      level: :info
-    })
-
     # Set up OpenTelemetry metrics bridge from Elixir telemetry
     setup_telemetry_metrics()
 
