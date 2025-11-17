@@ -17,10 +17,13 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
-# Include metadata in production logs for better debugging
-config :logger, :default_formatter,
-  format: "[$level] $message $metadata\n",
-  metadata: :all
+# Configure JSON logger for structured logging with OpenTelemetry trace correlation
+# This outputs logs in JSON format to stdout, which can be ingested by OTLP collector
+config :logger, :default_handler,
+  formatter: {LoggerJSON.Formatters.GoogleCloud, metadata: :all}
+
+# Ensure trace correlation metadata (trace_id, span_id) is included in logs
+# This is set up by :opentelemetry_logger_metadata.setup() in application.ex
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

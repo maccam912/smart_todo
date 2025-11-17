@@ -12,10 +12,8 @@ defmodule SmartTodo.Application do
     OpentelemetryEcto.setup([:smart_todo, :repo])
 
     # Attach OpenTelemetry logger metadata handler for trace correlation
+    # This adds trace_id and span_id to logger metadata for correlation
     :opentelemetry_logger_metadata.setup()
-
-    # Set up OpenTelemetry metrics bridge from Elixir telemetry
-    setup_telemetry_metrics()
 
     children = [
       SmartTodoWeb.Telemetry,
@@ -41,25 +39,5 @@ defmodule SmartTodo.Application do
   def config_change(changed, _new, removed) do
     SmartTodoWeb.Endpoint.config_change(changed, removed)
     :ok
-  end
-
-  # Set up OpenTelemetry metrics from Elixir telemetry events
-  defp setup_telemetry_metrics do
-    # Convert telemetry events to OpenTelemetry metrics
-    OpentelemetryTelemetry.attach_handler(:task_create_counter,
-      [:smart_todo, :tasks, :create],
-      %{unit: "{task}", description: "Number of tasks created"})
-
-    OpentelemetryTelemetry.attach_handler(:task_update_counter,
-      [:smart_todo, :tasks, :update],
-      %{unit: "{task}", description: "Number of tasks updated"})
-
-    OpentelemetryTelemetry.attach_handler(:task_delete_counter,
-      [:smart_todo, :tasks, :delete],
-      %{unit: "{task}", description: "Number of tasks deleted"})
-
-    OpentelemetryTelemetry.attach_handler(:task_complete_counter,
-      [:smart_todo, :tasks, :complete],
-      %{unit: "{task}", description: "Number of tasks completed"})
   end
 end

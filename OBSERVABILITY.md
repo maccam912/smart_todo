@@ -185,14 +185,110 @@ The following business metrics are exported:
 
 ### 4. Logs with Trace Correlation
 
-Logs are automatically correlated with traces using:
-- `opentelemetry_logger_metadata`: Adds trace context to log metadata
-- Custom OTEL logger handler: Exports logs to OTLP endpoint
+**Note**: The Erlang/Elixir OpenTelemetry SDK currently only supports **traces** export via OTLP. Direct log export via OTLP is not yet implemented. Instead, we use structured JSON logging with trace correlation.
 
-Log entries include:
-- `trace_id`: Current trace ID
-- `span_id`: Current span ID
-- Standard log fields (level, message, timestamp, etc.)
+#### How It Works
+
+Logs are automatically correlated with traces and output as structured JSON:
+
+1. **Trace Correlation** (`opentelemetry_logger_metadata`)
+   - Adds `trace_id` and `span_id` to logger metadata
+   - Automatically correlates logs with active spans
+
+2. **Structured JSON Output** (`logger_json`)
+   - In production, logs are formatted as JSON and written to stdout
+   - Uses Google Cloud Logging format for compatibility
+   - Includes all metadata (trace_id, span_id, request_id, etc.)
+
+3. **OTLP Collector Integration**
+   - Configure your OTLP collector to read logs from stdout
+   - Use the `filelog` receiver or stdout receiver
+   - Collector processes logs and exports them via OTLP
+
+#### Log Fields
+
+Each JSON log entry includes:
+- `trace_id`: Current trace ID (for correlation with traces)
+- `span_id`: Current span ID (for correlation with spans)
+- `severity`: Log level (INFO, WARNING, ERROR, etc.)
+- `message`: Log message
+- `timestamp`: ISO 8601 timestamp
+- `logging.googleapis.com/sourceLocation`: Source file, line, function
+- Additional metadata fields (request_id, user_id, etc.)
+
+#### Example Log Entry
+
+```json
+{
+  "severity": "INFO",
+  "message": "Processing task creation",
+  "timestamp": "2025-11-17T12:34:56.789Z",
+  "logging.googleapis.com/trace": "00112233445566778899aabbccddeeff",
+  "logging.googleapis.com/spanId": "0011223344556677",
+  "logging.googleapis.com/sourceLocation": {
+    "file": "lib/smart_todo/tasks.ex",
+    "line": "85",
+    "function": "create_task/2"
+  },
+  "user_id": 123,
+  "task_id": 456
+}
+```
+
+#### OTLP Collector Configuration
+
+To ingest these JSON logs and export them via OTLP, configure your collector:
+
+```yaml
+# otel-collector-config.yaml
+receivers:
+  # For Kubernetes pods
+  filelog:
+    include:
+      - /var/log/pods/*/smart-todo/*.log
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%Y-%m-%dT%H:%M:%S.%fZ'
+      - type: trace_parser
+        trace_id:
+          parse_from: attributes["logging.googleapis.com/trace"]
+        span_id:
+          parse_from: attributes["logging.googleapis.com/spanId"]
+
+  # For docker containers writing to stdout
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 10s
+
+exporters:
+  otlp:
+    endpoint: your-backend:4317
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp]
+    logs:
+      receivers: [filelog]
+      processors: [batch]
+      exporters: [otlp]
+```
+
+#### Alternative: Direct OTLP Export (Future)
+
+When the Erlang/Elixir OpenTelemetry SDK adds support for direct log export via OTLP, you can update the configuration to use it. Track progress at:
+- [opentelemetry-erlang GitHub](https://github.com/open-telemetry/opentelemetry-erlang)
 
 ## Semantic Conventions
 
@@ -336,20 +432,29 @@ echo $OTEL_EXPORTER_OTLP_ENDPOINT
 curl -v http://localhost:4318/v1/traces
 ```
 
-### Metrics not exported
-
-1. Verify metrics endpoint is configured
-2. Check if telemetry events are being emitted (add temporary logging)
-3. Ensure OpentelemetryTelemetry handlers are attached
-
 ### Logs missing trace context
 
-1. Verify logger handler is installed:
-```elixir
-:logger.get_handler_config(:otel_logger)
+1. Check if `opentelemetry_logger_metadata.setup()` was called in `lib/smart_todo/application.ex`
+
+2. Verify JSON formatter is configured in production:
+```bash
+# In production environment, logs should be JSON formatted
+MIX_ENV=prod mix phx.server
+# Check that logs are output as JSON
 ```
 
-2. Check if `opentelemetry_logger_metadata.setup()` was called
+3. Verify trace context is in metadata:
+```elixir
+# Add temporary logging in a controller
+Logger.metadata() |> IO.inspect(label: "Current metadata")
+# Should include trace_id and span_id
+```
+
+4. Check OTLP collector configuration for log ingestion:
+```bash
+# Verify collector is reading logs
+kubectl logs -n monitoring otel-collector
+```
 
 ## References
 
