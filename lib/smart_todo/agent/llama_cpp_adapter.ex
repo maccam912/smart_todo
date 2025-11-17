@@ -47,7 +47,12 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
         {"url.full", api_url},
         # OpenInference attributes
         {"openinference.span.kind", "LLM"},
-        {"input.value", encode_input_value(openai_payload)}
+        {"input.value", encode_input_value(openai_payload)},
+        # Capture full conversation for LLM observability
+        {"llm.input_messages", encode_messages(openai_payload["messages"])},
+        {"llm.model_name", model},
+        {"llm.invocation_parameters", encode_invocation_params(openai_payload)},
+        {"llm.tools", encode_tools(openai_payload["tools"])}
       ]
 
       # Add optional OpenInference attributes
@@ -72,7 +77,11 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
             {"gen_ai.response.finish_reasons", extract_openai_finish_reason(body)},
             {"gen_ai.usage.input_tokens", get_in(body, ["usage", "prompt_tokens"])},
             {"gen_ai.usage.output_tokens", get_in(body, ["usage", "completion_tokens"])},
-            {"output.value", encode_output_value(body)}
+            {"output.value", encode_output_value(body)},
+            {"llm.output_messages", encode_output_messages(body)},
+            {"llm.token_count.prompt", get_in(body, ["usage", "prompt_tokens"])},
+            {"llm.token_count.completion", get_in(body, ["usage", "completion_tokens"])},
+            {"llm.token_count.total", get_in(body, ["usage", "total_tokens"])}
           ])
 
           gemini_response = translate_from_openai(body)
@@ -343,6 +352,60 @@ defmodule SmartTodo.Agent.LlamaCppAdapter do
           _ -> Jason.encode!(body)
         end
       _ -> Jason.encode!(body)
+    end
+  end
+
+  defp encode_messages(nil), do: "[]"
+  defp encode_messages(messages) when is_list(messages) do
+    messages
+    |> Enum.map(fn msg ->
+      %{
+        role: msg["role"],
+        content: msg["content"] || encode_tool_calls(msg["tool_calls"])
+      }
+    end)
+    |> Jason.encode!()
+  end
+  defp encode_messages(_), do: "[]"
+
+  defp encode_tool_calls(nil), do: nil
+  defp encode_tool_calls(tool_calls) when is_list(tool_calls) do
+    Jason.encode!(tool_calls)
+  end
+  defp encode_tool_calls(_), do: nil
+
+  defp encode_invocation_params(payload) do
+    %{
+      temperature: payload["temperature"],
+      max_tokens: payload["max_tokens"],
+      cache_prompt: payload["cache_prompt"]
+    }
+    |> Jason.encode!()
+  end
+
+  defp encode_tools(nil), do: nil
+  defp encode_tools(tools) when is_list(tools) do
+    tool_names = Enum.map(tools, fn tool ->
+      get_in(tool, ["function", "name"])
+    end)
+    Jason.encode!(%{count: length(tools), functions: tool_names})
+  end
+  defp encode_tools(_), do: nil
+
+  defp encode_output_messages(body) do
+    case get_in(body, ["choices"]) do
+      choices when is_list(choices) ->
+        choices
+        |> Enum.map(fn choice ->
+          message = choice["message"]
+          %{
+            role: message["role"] || "assistant",
+            content: message["content"] || encode_tool_calls(message["tool_calls"]),
+            finish_reason: choice["finish_reason"]
+          }
+        end)
+        |> Jason.encode!()
+      _ -> "[]"
     end
   end
 end

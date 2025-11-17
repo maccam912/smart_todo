@@ -135,8 +135,13 @@ All task operations are instrumented with custom spans:
   - `gen_ai.response.finish_reasons`: Completion reasons
 - OpenInference attributes:
   - `openinference.span.kind`: "LLM"
-  - `input.value`: Last user message
-  - `output.value`: Model response
+  - `input.value`: Last user message (for quick access)
+  - `output.value`: Model response (for quick access)
+  - `llm.input_messages`: Full conversation history (JSON array)
+  - `llm.output_messages`: Full model response messages (JSON array)
+  - `llm.system`: System prompt/instruction
+  - `llm.model_name`: Model identifier
+  - `llm.tools`: Available tools (function names and count)
   - `session.id`, `user.id`: Session tracking
 
 **llama.cpp API Calls** (`lib/smart_todo/agent/llama_cpp_adapter.ex:37`)
@@ -146,7 +151,10 @@ All task operations are instrumented with custom spans:
   - `gen_ai.system`: "llama_cpp"
   - `gen_ai.request.model`, `gen_ai.request.temperature`, `gen_ai.request.max_tokens`
   - `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
-- OpenInference attributes same as Gemini
+- OpenInference attributes:
+  - Same as Gemini above, plus:
+  - `llm.invocation_parameters`: Temperature, max_tokens, cache_prompt
+  - `llm.token_count.prompt`, `llm.token_count.completion`, `llm.token_count.total`
 
 ### 3. Metrics
 
@@ -195,6 +203,15 @@ We follow [OpenInference](https://github.com/Arize-ai/openinference) semantic co
 - `openinference.span.kind`: AGENT, LLM, CHAIN, etc.
 - `session.id`: Session tracking across multiple LLM calls
 - `input.value`, `output.value`: Request/response content
+- `llm.input_messages`, `llm.output_messages`: Full conversation history
+- `llm.system`, `llm.tools`, `llm.model_name`: LLM configuration
+- `llm.token_count.*`: Token usage metrics
+
+**Note**: We implement OpenInference conventions manually. For a more standardized approach, consider the [agent_obs](https://hex.pm/packages/agent_obs) package which provides:
+- Native :telemetry events for agent operations
+- Automatic translation to OpenTelemetry spans with OpenInference conventions
+- Higher-level abstractions for common patterns
+- Better integration with tools like Arize Phoenix
 
 ### OpenTelemetry Semantic Conventions
 
@@ -204,6 +221,26 @@ We follow [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/spe
 - `http.*`: HTTP client/server operations
 - `db.*`: Database operations
 - `server.*`: Server attributes
+
+## Prompt Caching Optimization
+
+The LLM prompts are structured to maximize efficiency with prefix caching:
+
+1. **System Prompt** (static, cached across all sessions):
+   - Core rules and instructions
+   - Static documentation (status values, urgency levels, etc.)
+   - User preferences (semi-static, changes rarely)
+
+2. **User Messages** (ordered for caching):
+   - **Semi-static content first** (better cache hit rate):
+     - Available commands (only changes on state transitions)
+     - Recorded plans (grows but doesn't change)
+   - **Dynamic content last** (frequently changing):
+     - Pending operations
+     - Open tasks
+     - Current state and session message
+
+This ordering ensures that the maximum amount of prompt content can be cached by the LLM provider, reducing latency and costs.
 
 ## Testing the Instrumentation
 
