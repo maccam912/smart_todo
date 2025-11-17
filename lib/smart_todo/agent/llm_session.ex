@@ -306,7 +306,12 @@ defmodule SmartTodo.Agent.LlmSession do
         {"url.full", url},
         # OpenInference attributes
         {"openinference.span.kind", "LLM"},
-        {"input.value", encode_input_value(payload)}
+        {"input.value", encode_input_value(payload)},
+        # Capture full conversation for LLM observability
+        {"llm.input_messages", encode_messages(get_in(payload, ["contents"]))},
+        {"llm.system", encode_system_instruction(get_in(payload, ["systemInstruction"]))},
+        {"llm.model_name", model},
+        {"llm.tools", encode_tools(get_in(payload, ["tools"]))}
       ]
 
       # Add optional OpenInference attributes
@@ -332,7 +337,8 @@ defmodule SmartTodo.Agent.LlmSession do
           Tracer.set_attributes([
             {"http.response.status_code", 200},
             {"gen_ai.response.finish_reasons", extract_finish_reasons(body)},
-            {"output.value", encode_output_value(body)}
+            {"output.value", encode_output_value(body)},
+            {"llm.output_messages", encode_output_messages(body)}
           ])
 
           {:ok, body}
@@ -423,6 +429,76 @@ defmodule SmartTodo.Agent.LlmSession do
           _ -> Jason.encode!(body)
         end
       _ -> Jason.encode!(body)
+    end
+  end
+
+  defp encode_messages(nil), do: "[]"
+  defp encode_messages(messages) when is_list(messages) do
+    # Encode conversation history for LLM observability
+    messages
+    |> Enum.map(fn msg ->
+      %{
+        role: msg["role"],
+        content: extract_message_content(msg)
+      }
+    end)
+    |> Jason.encode!()
+  end
+  defp encode_messages(_), do: "[]"
+
+  defp extract_message_content(%{"parts" => parts}) when is_list(parts) do
+    parts
+    |> Enum.map(fn part ->
+      cond do
+        Map.has_key?(part, "text") -> part["text"]
+        Map.has_key?(part, "functionCall") -> Jason.encode!(part["functionCall"])
+        Map.has_key?(part, "functionResponse") -> Jason.encode!(part["functionResponse"])
+        true -> ""
+      end
+    end)
+    |> Enum.join("\n")
+  end
+  defp extract_message_content(_), do: ""
+
+  defp encode_system_instruction(nil), do: nil
+  defp encode_system_instruction(%{"parts" => parts}) when is_list(parts) do
+    parts
+    |> Enum.map(fn part -> Map.get(part, "text", "") end)
+    |> Enum.join("\n")
+  end
+  defp encode_system_instruction(_), do: nil
+
+  defp encode_tools(nil), do: nil
+  defp encode_tools(tools) when is_list(tools) do
+    # Just encode the tool count and names for now to avoid huge payloads
+    tool_count = length(tools)
+    function_names = tools
+                     |> Enum.flat_map(fn tool ->
+                       case get_in(tool, ["functionDeclarations"]) do
+                         functions when is_list(functions) ->
+                           Enum.map(functions, fn f -> f["name"] end)
+                         _ -> []
+                       end
+                     end)
+
+    Jason.encode!(%{count: tool_count, functions: function_names})
+  end
+  defp encode_tools(_), do: nil
+
+  defp encode_output_messages(body) do
+    # Encode the model's output messages for LLM observability
+    case get_in(body, ["candidates"]) do
+      candidates when is_list(candidates) ->
+        candidates
+        |> Enum.map(fn candidate ->
+          %{
+            role: get_in(candidate, ["content", "role"]) || "model",
+            content: extract_message_content(get_in(candidate, ["content"]) || %{}),
+            finish_reason: Map.get(candidate, "finishReason")
+          }
+        end)
+        |> Jason.encode!()
+      _ -> "[]"
     end
   end
 
@@ -843,18 +919,28 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp render_state_text(response) do
+    # Organize for optimal prefix caching: static/semi-static content first, dynamic content last
     [
-      "Session message: #{response.message}",
-      "State: #{response.state}",
-      "Error?: #{response.error?}",
-      "Open tasks:",
-      render_tasks(response.open_tasks),
-      "Pending operations:",
-      render_ops(response.pending_operations),
+      # Semi-static: Available commands (only changes on state transitions)
+      "Available commands:",
+      render_commands(response.available_commands),
+      "",
+      # Semi-static: Recorded plans (grows but doesn't change existing entries)
       "Recorded plans:",
       render_plan_notes(response.plan_notes),
-      "Available commands:",
-      render_commands(response.available_commands)
+      "",
+      # Dynamic: Pending operations (changes as operations are staged)
+      "Pending operations:",
+      render_ops(response.pending_operations),
+      "",
+      # Dynamic: Open tasks (changes frequently as tasks are modified)
+      "Open tasks:",
+      render_tasks(response.open_tasks),
+      "",
+      # Dynamic: Current state and status (changes every turn)
+      "Current state: #{response.state}",
+      "Error?: #{response.error?}",
+      "Session message: #{response.message}"
     ]
     |> Enum.join("\n")
   end
@@ -874,9 +960,9 @@ defmodule SmartTodo.Agent.LlmSession do
   defp render_tasks(tasks) when is_list(tasks) do
     tasks
     |> Enum.map(fn task ->
-      data = Map.get(task, :data) || Map.get(task, "data")
-      target = Map.get(task, :target) || Map.get(task, "target")
-      "- #{target}: #{Jason.encode!(data)}"
+      # Extract target and encode the entire task data
+      target = Map.get(task, :target) || Map.get(task, "target") || "unknown"
+      "- #{target}: #{Jason.encode!(task)}"
     end)
     |> Enum.join("\n")
   end
@@ -933,20 +1019,40 @@ defmodule SmartTodo.Agent.LlmSession do
   defp render_commands(_), do: "- none"
 
   defp system_prompt(scope) do
+    # Static base instructions (never changes - optimal for caching)
     base =
       """
-      You manage SmartTodo tasks strictly through the provided function-call tools. Follow these rules:
+      You manage SmartTodo tasks strictly through the provided function-call tools.
+
+      ## Core Rules
       1. Every reply MUST be exactly one function call defined in `available_commands`.
       2. Read the state snapshot each turn; `available_commands` is the source of truth for what you can call.
       3. To change, complete, or delete an existing task you MUST call `select_task` first. Once a task is selected, the editing commands (update, complete, delete, exit_editing) become available. If you are not editing, those commands are unavailable.
       4. New tasks are staged with `create_task`; existing tasks accumulate staged changes until you `complete_session` (commit) or `discard_all`.
       5. Whenever solving the request requires more than one command, call `record_plan` first to capture the steps you intend to take.
       6. `complete_session` MUST be the final command you ever issue in a session; after calling it you may not send any further commands.
+
+      ## Task Target Format
+      - Existing tasks: "existing:123" where 123 is the task ID
+      - Pending tasks: "pending:1" where 1 is the pending reference number
+      - Use task_id parameter for existing tasks, pending_ref parameter for pending tasks
+
+      ## Status Values
+      - todo: Not started
+      - in_progress: Currently being worked on
+      - done: Completed (filtered from open tasks)
+
+      ## Urgency Values
+      - low, normal, high, critical
+
+      ## Recurrence Values
+      - none, daily, weekly, monthly, yearly
       """
 
+    # Semi-static: User preferences (changes rarely)
     case preference_text(scope) do
       nil -> base
-      preferences -> base <> "\n\nUser preferences:\n" <> preferences
+      preferences -> base <> "\n## User Preferences\n" <> preferences <> "\n"
     end
   end
 
