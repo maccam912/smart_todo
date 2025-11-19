@@ -169,7 +169,7 @@ defmodule SmartTodo.Agent.LlmSession do
       {:ok, body} ->
         with {:ok, parsed} <- extract_function_call(body),
              {:ok, command} <- resolve_command(parsed.command, last_response) do
-          {:ok, %{name: parsed.command, command: command, params: parsed.params}, body}
+          {:ok, %{id: parsed.id, name: parsed.command, command: command, params: parsed.params}, body}
         else
           {:error, reason} -> {:error, reason, error_context(last_response, payload, body)}
         end
@@ -179,14 +179,14 @@ defmodule SmartTodo.Agent.LlmSession do
     end
   end
 
-  defp apply_command(ctx, %{command: command, params: params, name: name}, _raw_body) do
+  defp apply_command(ctx, %{id: tool_call_id, command: command, params: params, name: name}, _raw_body) do
     case StateMachine.handle_command(ctx.machine, command, params) do
       {:ok, machine, response} ->
         status = if machine.state == :completed, do: :completed, else: :pending
 
         conversation =
           ctx.conversation ++
-            [model_turn(name, params), tool_turn(name, params, response, status)] ++
+            [model_turn(name, params, tool_call_id), tool_turn(name, params, response, status, tool_call_id)] ++
             if status == :pending, do: [user_turn(nil, response, :followup)], else: []
 
         final_ctx =
@@ -199,7 +199,7 @@ defmodule SmartTodo.Agent.LlmSession do
         {:ok, final_ctx}
 
       {:error, machine, response} ->
-        conversation = add_error_turn(ctx.conversation, name, params, response)
+        conversation = add_error_turn(ctx.conversation, name, params, response, tool_call_id)
 
         updated =
           ctx
@@ -556,10 +556,18 @@ defmodule SmartTodo.Agent.LlmSession do
     tool_calls = get_in(choice, ["message", "tool_calls"]) || []
 
     case tool_calls do
-      [%{"function" => %{"name" => name, "arguments" => args_str}} | _] ->
+      [%{"id" => id, "function" => %{"name" => name, "arguments" => args_str}} | _] ->
         # OpenAI returns arguments as a JSON string, so we need to decode it
         case Jason.decode(args_str) do
-          {:ok, args} -> {:ok, %{command: name, params: normalize_args(args)}}
+          {:ok, args} -> {:ok, %{id: id, command: name, params: normalize_args(args)}}
+          {:error, _} -> {:error, :invalid_json_arguments}
+        end
+
+      [%{"function" => %{"name" => name, "arguments" => args_str}} | _] ->
+        # Handle missing ID by generating one
+        id = "call_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
+        case Jason.decode(args_str) do
+          {:ok, args} -> {:ok, %{id: id, command: name, params: normalize_args(args)}}
           {:error, _} -> {:error, :invalid_json_arguments}
         end
 
@@ -690,11 +698,12 @@ defmodule SmartTodo.Agent.LlmSession do
     %{"type" => "string"}
   end
 
-  defp model_turn(name, params) do
+  defp model_turn(name, params, tool_call_id) do
     %{
       "role" => "assistant",
       "tool_calls" => [
         %{
+          "id" => tool_call_id,
           "type" => "function",
           "function" => %{
             "name" => name,
@@ -705,7 +714,7 @@ defmodule SmartTodo.Agent.LlmSession do
     }
   end
 
-  defp tool_turn(name, params, response, status) do
+  defp tool_turn(name, params, response, status, tool_call_id) do
     outcome =
       case status do
         :completed -> "completed"
@@ -720,22 +729,22 @@ defmodule SmartTodo.Agent.LlmSession do
 
     %{
       "role" => "tool",
-      "tool_call_id" => name, # This might need adjustment based on actual OpenAI response
+      "tool_call_id" => tool_call_id,
       "name" => name,
       "content" => Jason.encode!(content)
     }
   end
 
-  defp add_error_turn(conversation, name, params, response) do
+  defp add_error_turn(conversation, name, params, response, tool_call_id) do
     conversation ++
       [
-        model_turn(name, params),
-        tool_error_turn(name, params, response),
+        model_turn(name, params, tool_call_id),
+        tool_error_turn(name, params, response, tool_call_id),
         user_turn(nil, response, :error)
       ]
   end
 
-  defp tool_error_turn(name, params, response) do
+  defp tool_error_turn(name, params, response, tool_call_id) do
     content = %{
       "status" => "error",
       "state" => render_state_snapshot(response),
@@ -744,7 +753,7 @@ defmodule SmartTodo.Agent.LlmSession do
 
     %{
       "role" => "tool",
-      "tool_call_id" => name,
+      "tool_call_id" => tool_call_id,
       "name" => name,
       "content" => Jason.encode!(content)
     }
