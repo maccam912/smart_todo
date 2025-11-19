@@ -9,8 +9,8 @@ config :pbkdf2_elixir, :rounds, 1
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :smart_todo, SmartTodo.Repo,
-  username: "postgres",
-  password: "postgres",
+  username: "jules",
+  password: "jules",
   hostname: "localhost",
   database: "smart_todo_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
