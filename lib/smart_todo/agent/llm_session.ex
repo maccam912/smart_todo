@@ -132,7 +132,7 @@ defmodule SmartTodo.Agent.LlmSession do
 
       true ->
         tools = tools_from_response(ctx.last_response)
-        model = Keyword.get(opts, :model, @default_model)
+        model = get_model(opts)
 
         payload = %{
           "model" => model,
@@ -241,7 +241,7 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp call_model(payload, opts) do
-    url = model_endpoint(Keyword.get(opts, :model, @default_model), opts)
+    url = model_endpoint(get_model(opts), opts)
     request_fun = Keyword.get(opts, :request_fun, &openai_request/3)
     request_opts = prepare_request_opts(opts)
 
@@ -270,7 +270,7 @@ defmodule SmartTodo.Agent.LlmSession do
       headers: auth_headers
     ]
 
-    model = Keyword.get(opts, :model, @default_model)
+    model = get_model(opts)
 
     # Start OpenTelemetry span for LLM request
     Tracer.with_span "gen_ai.openai.chat", %{kind: :client} do
@@ -516,6 +516,10 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp api_key do
     present(System.get_env("OPENAI_API_KEY"))
+  end
+
+  defp get_model(opts) do
+    Keyword.get(opts, :model) || System.get_env("LLM_MODEL") || @default_model
   end
 
   defp model_endpoint(_model, opts) do
