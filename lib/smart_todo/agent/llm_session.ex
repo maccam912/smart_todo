@@ -10,7 +10,6 @@ defmodule SmartTodo.Agent.LlmSession do
 
   alias SmartTodo.Accounts.Scope
   alias SmartTodo.Agent.StateMachine
-  alias SmartTodo.Agent.LlamaCppAdapter
   alias Req
 
   require Logger
@@ -22,11 +21,8 @@ defmodule SmartTodo.Agent.LlmSession do
 
   @max_errors 3
   @max_rounds 20
-  @default_model "qwen2.5-3b-instruct"
-  @base_url "https://llama-cpp.rackspace.koski.co"
-  @helicone_base_url "https://gateway.helicone.ai/v1beta"
-  @helicone_target_url "https://generativelanguage.googleapis.com"
-  @helicone_default_properties %{"App" => "smart_todo"}
+  @default_model "gpt-4-turbo"
+  @base_url "https://api.openai.com/v1"
   @default_receive_timeout :timer.minutes(10)
 
   @spec start(Scope.t(), String.t(), keyword()) :: {:ok, pid()}
@@ -136,21 +132,16 @@ defmodule SmartTodo.Agent.LlmSession do
 
       true ->
         tools = tools_from_response(ctx.last_response)
+        model = Keyword.get(opts, :model, @default_model)
 
-        payload =
-          %{
-            "systemInstruction" => %{
-              "role" => "system",
-              "parts" => [%{"text" => system_prompt(ctx.scope)}]
-            },
-            "contents" => ctx.conversation,
-            "tools" => [%{"functionDeclarations" => tools}],
-            "toolConfig" => %{"functionCallingConfig" => %{"mode" => "ANY"}}
-          }
+        payload = %{
+          "model" => model,
+          "messages" => [system_message(ctx.scope) | ctx.conversation],
+          "tools" => tools,
+          "tool_choice" => "auto"
+        }
 
-        request_opts = maybe_put_scope_helicone_properties(opts, ctx.scope)
-
-        case request_command(payload, ctx.last_response, request_opts) do
+        case request_command(payload, ctx.last_response, opts) do
           {:ok, call, body} ->
             case apply_command(ctx, call, body) do
               {:ok, after_call} ->
@@ -250,55 +241,42 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp call_model(payload, opts) do
-    helicone = helicone_settings(opts)
-    url = model_endpoint(Keyword.get(opts, :model, @default_model), opts, helicone)
-    request_fun = Keyword.get(opts, :request_fun, &default_request/3)
-    request_opts = prepare_request_opts(opts, helicone)
+    url = model_endpoint(Keyword.get(opts, :model, @default_model), opts)
+    request_fun = Keyword.get(opts, :request_fun, &openai_request/3)
+    request_opts = prepare_request_opts(opts)
 
     request_fun.(url, payload, request_opts)
   end
 
-  defp default_request(url, payload, opts) do
-    # Check if this is a Gemini API or a llama.cpp server
-    using_gemini_api? =
-      String.contains?(url, "generativelanguage.googleapis.com") or
-      String.contains?(url, "helicone")
-
-    if using_gemini_api? do
-      gemini_request(url, payload, opts)
-    else
-      # Use adapter for llama.cpp servers
-      Logger.info("Using LlamaCppAdapter for non-Gemini server", url: url)
-
-      # Model configuration is handled by the adapter (via LLAMA_CPP_MODEL env var or default)
-      LlamaCppAdapter.request(url, payload, opts)
-    end
-  end
-
-  defp gemini_request(url, payload, opts) do
+  defp openai_request(url, payload, opts) do
     api_key_value = Keyword.get(opts, :api_key, api_key())
-    headers = normalize_headers(Keyword.get(opts, :headers, []))
+    headers = Keyword.get(opts, :headers, [])
     timeout = Keyword.get(opts, :receive_timeout, default_receive_timeout())
     session_id = Keyword.get(opts, :session_id)
     user_id = extract_user_id(opts)
 
-    request_options =
-      [
-        url: url,
-        json: payload,
-        receive_timeout: timeout
-      ]
-      |> maybe_put_api_key(api_key_value)
-      |> maybe_put_headers(headers)
+    # Add Authorization header for OpenAI
+    auth_headers =
+      if api_key_value do
+        [{"Authorization", "Bearer #{api_key_value}"} | headers]
+      else
+        headers
+      end
 
-    # Extract model from URL for tracing
-    model = extract_model_from_url(url)
+    request_options = [
+      url: url,
+      json: payload,
+      receive_timeout: timeout,
+      headers: auth_headers
+    ]
+
+    model = Keyword.get(opts, :model, @default_model)
 
     # Start OpenTelemetry span for LLM request
-    Tracer.with_span "gen_ai.gemini.chat", %{kind: :client} do
+    Tracer.with_span "gen_ai.openai.chat", %{kind: :client} do
       # Set semantic convention attributes for GenAI and OpenInference
       base_attributes = [
-        {"gen_ai.system", "gemini"},
+        {"gen_ai.system", "openai"},
         {"gen_ai.request.model", model},
         {"gen_ai.operation.name", "chat"},
         {"server.address", URI.parse(url).host},
@@ -308,10 +286,9 @@ defmodule SmartTodo.Agent.LlmSession do
         {"openinference.span.kind", "LLM"},
         {"input.value", encode_input_value(payload)},
         # Capture full conversation for LLM observability
-        {"llm.input_messages", encode_messages(get_in(payload, ["contents"]))},
-        {"llm.system", encode_system_instruction(get_in(payload, ["systemInstruction"]))},
+        {"llm.input_messages", encode_messages(get_in(payload, ["messages"]))},
         {"llm.model_name", model},
-        {"llm.tools", encode_tools(get_in(payload, ["tools"]))}
+        {"llm.tool_calls", encode_tools(get_in(payload, ["tools"]))}
       ]
 
       # Add optional OpenInference attributes
@@ -336,7 +313,7 @@ defmodule SmartTodo.Agent.LlmSession do
           # Set response attributes including OpenInference output
           Tracer.set_attributes([
             {"http.response.status_code", 200},
-            {"gen_ai.response.finish_reasons", extract_finish_reasons(body)},
+            {"gen_ai.response.finish_reasons", extract_finish_reason(body)},
             {"output.value", encode_output_value(body)},
             {"llm.output_messages", encode_output_messages(body)}
           ])
@@ -372,13 +349,6 @@ defmodule SmartTodo.Agent.LlmSession do
 
           {:error, reason}
       end
-    end
-  end
-
-  defp extract_model_from_url(url) do
-    case Regex.run(~r/\/models\/([^:]+)/, url) do
-      [_, model] -> model
-      _ -> "unknown"
     end
   end
 
@@ -487,14 +457,15 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp encode_output_messages(body) do
     # Encode the model's output messages for LLM observability
-    case get_in(body, ["candidates"]) do
-      candidates when is_list(candidates) ->
-        candidates
-        |> Enum.map(fn candidate ->
+    case get_in(body, ["choices"]) do
+      choices when is_list(choices) ->
+        choices
+        |> Enum.map(fn choice ->
           %{
-            role: get_in(candidate, ["content", "role"]) || "model",
-            content: extract_message_content(get_in(candidate, ["content"]) || %{}),
-            finish_reason: Map.get(candidate, "finishReason")
+            role: get_in(choice, ["message", "role"]) || "assistant",
+            content: get_in(choice, ["message", "content"]) || "",
+            tool_calls: get_in(choice, ["message", "tool_calls"]),
+            finish_reason: Map.get(choice, "finish_reason")
           }
         end)
         |> Jason.encode!()
@@ -517,13 +488,11 @@ defmodule SmartTodo.Agent.LlmSession do
     end
   end
 
-  defp extract_finish_reasons(%{"candidates" => candidates}) when is_list(candidates) do
-    candidates
-    |> Enum.map(fn candidate -> Map.get(candidate, "finishReason", "UNKNOWN") end)
-    |> Enum.join(",")
+  defp extract_finish_reason(%{"choices" => [choice | _]}) do
+    Map.get(choice, "finish_reason", "UNKNOWN")
   end
 
-  defp extract_finish_reasons(_), do: "UNKNOWN"
+  defp extract_finish_reason(_), do: "UNKNOWN"
 
   defp classify_error(%Mint.TransportError{reason: reason}), do: {:transport_error, reason}
   defp classify_error(%Mint.HTTPError{reason: reason}), do: {:http_protocol_error, reason}
@@ -546,132 +515,23 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp api_key do
-    present(System.get_env("GEMINI_API_KEY")) || present(System.get_env("GOOGLE_API_KEY"))
+    present(System.get_env("OPENAI_API_KEY"))
   end
 
-  defp model_endpoint(model, opts, helicone) do
+  defp model_endpoint(_model, opts) do
     base =
-      case Keyword.get(opts, :base_url) do
-        nil ->
-          case helicone do
-            %{base_url: base_url} ->
-              base_url
+      Keyword.get(opts, :base_url) ||
+        Application.get_env(:smart_todo, :llm, []) |> Keyword.get(:base_url) ||
+        System.get_env("OPENAI_API_BASE") ||
+        @base_url
 
-            _ ->
-              Application.get_env(:smart_todo, :llm, [])
-              |> Keyword.get(:base_url, @base_url)
-          end
-
-        base_url ->
-          base_url
-      end
-
-    "#{base}/models/#{model}:generateContent"
+    "#{base}/chat/completions"
   end
 
-  defp prepare_request_opts(opts, helicone) do
+  defp prepare_request_opts(opts) do
     opts
     |> Keyword.put_new_lazy(:receive_timeout, &default_receive_timeout/0)
-    |> maybe_attach_helicone_headers(helicone)
   end
-
-  defp maybe_put_scope_helicone_properties(opts, %Scope{user: %{id: id}}) when not is_nil(id) do
-    properties =
-      opts
-      |> Keyword.get(:helicone_properties, %{})
-      |> normalize_properties()
-      |> Map.put_new("UserId", id)
-
-    Keyword.put(opts, :helicone_properties, properties)
-  end
-
-  defp maybe_put_scope_helicone_properties(opts, _), do: opts
-
-  defp maybe_attach_helicone_headers(opts, nil), do: opts
-
-  defp maybe_attach_helicone_headers(opts, %{api_key: key, target_url: target, properties: props}) do
-    existing_headers =
-      opts
-      |> Keyword.get(:headers, [])
-      |> normalize_headers()
-      |> Enum.reject(&helicone_header?/1)
-
-    headers = helicone_header_list(key, target, props) ++ existing_headers
-
-    opts
-    |> Keyword.put(:headers, headers)
-    |> Keyword.put(:helicone_api_key, key)
-    |> Keyword.put(:helicone_target_url, target)
-    |> Keyword.put(:helicone_properties, props)
-  end
-
-  defp helicone_settings(opts) do
-    # Get the configured LLM base URL to determine if we should use Helicone
-    configured_base_url =
-      opts
-      |> Keyword.get(:base_url)
-      |> present() ||
-        (Application.get_env(:smart_todo, :llm, [])
-         |> Keyword.get(:base_url, @base_url))
-
-    # Only use Helicone with Google's Gemini API, not with self-hosted servers
-    using_gemini_api? = String.contains?(configured_base_url, "generativelanguage.googleapis.com")
-
-    key =
-      opts
-      |> Keyword.get(:helicone_api_key)
-      |> present() ||
-        present(System.get_env("HELICONE_API_KEY"))
-
-    case key do
-      nil ->
-        nil
-
-      key when using_gemini_api? ->
-        base_url =
-          opts
-          |> Keyword.get(:helicone_base_url)
-          |> present() ||
-            present(System.get_env("HELICONE_BASE_URL")) ||
-            @helicone_base_url
-
-        target_url =
-          opts
-          |> Keyword.get(:helicone_target_url)
-          |> present() ||
-            present(System.get_env("HELICONE_TARGET_URL")) ||
-            @helicone_target_url
-
-        properties =
-          @helicone_default_properties
-          |> Map.merge(normalize_properties(Keyword.get(opts, :helicone_properties, %{})))
-
-        %{api_key: key, base_url: base_url, target_url: target_url, properties: properties}
-
-      _key ->
-        # Helicone API key is set but we're not using Gemini API, so ignore Helicone
-        Logger.info("Helicone API key is set but not using Gemini API (base_url: #{configured_base_url}), bypassing Helicone")
-        nil
-    end
-  end
-
-  defp helicone_header_list(key, target, props) do
-    base_headers = [
-      {"Helicone-Auth", "Bearer #{key}"},
-      {"Helicone-Target-URL", target}
-    ]
-
-    property_headers =
-      props
-      |> Enum.map(fn {name, value} ->
-        {"Helicone-Property-#{name}", to_string(value)}
-      end)
-
-    base_headers ++ property_headers
-  end
-
-  defp helicone_header?({"Helicone-" <> _, _}), do: true
-  defp helicone_header?(_), do: false
 
   defp normalize_headers(headers) do
     headers
@@ -685,28 +545,27 @@ defmodule SmartTodo.Agent.LlmSession do
     end)
   end
 
-  defp normalize_properties(%{} = props), do: props
-  defp normalize_properties(props) when is_list(props), do: Enum.into(props, %{})
-  defp normalize_properties(_), do: %{}
-
   defp present(value) when value in [nil, ""], do: nil
   defp present(value), do: value
 
-  defp maybe_put_api_key(opts, nil), do: opts
-  defp maybe_put_api_key(opts, key), do: Keyword.put(opts, :params, %{key: key})
+  defp extract_function_call(%{"choices" => [choice | _]}) do
+    tool_calls = get_in(choice, ["message", "tool_calls"]) || []
 
-  defp maybe_put_headers(opts, []), do: Keyword.delete(opts, :headers)
-  defp maybe_put_headers(opts, headers), do: Keyword.put(opts, :headers, headers)
+    case tool_calls do
+      [%{"function" => %{"name" => name, "arguments" => args_str}} | _] ->
+        # OpenAI returns arguments as a JSON string, so we need to decode it
+        case Jason.decode(args_str) do
+          {:ok, args} -> {:ok, %{command: name, params: normalize_args(args)}}
+          {:error, _} -> {:error, :invalid_json_arguments}
+        end
 
-  defp extract_function_call(%{"candidates" => [candidate | _]}) do
-    parts = get_in(candidate, ["content", "parts"]) || []
-
-    case Enum.find(parts, &Map.has_key?(&1, "functionCall")) do
-      %{"functionCall" => %{"name" => name, "args" => args}} ->
-        {:ok, %{command: name, params: normalize_args(args)}}
+      [] ->
+        # This case handles when the model returns a regular message instead of a tool call
+        # For this agent, we'll treat it as no function call.
+        {:error, :no_function_call}
 
       _ ->
-        {:error, :no_function_call}
+        {:error, :unsupported_tool_call_format}
     end
   end
 
@@ -740,9 +599,12 @@ defmodule SmartTodo.Agent.LlmSession do
   defp tools_from_response(response) do
     Enum.map(response.available_commands, fn command ->
       %{
-        "name" => command_name(command),
-        "description" => command_desc(command),
-        "parameters" => tool_parameters(command)
+        "type" => "function",
+        "function" => %{
+          "name" => command_name(command),
+          "description" => command_desc(command),
+          "parameters" => tool_parameters(command)
+        }
       }
     end)
   end
@@ -826,12 +688,13 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp model_turn(name, params) do
     %{
-      "role" => "model",
-      "parts" => [
+      "role" => "assistant",
+      "tool_calls" => [
         %{
-          "functionCall" => %{
+          "type" => "function",
+          "function" => %{
             "name" => name,
-            "args" => params
+            "arguments" => Jason.encode!(params)
           }
         }
       ]
@@ -845,20 +708,17 @@ defmodule SmartTodo.Agent.LlmSession do
         :pending -> "ok"
       end
 
+    content = %{
+      "status" => outcome,
+      "state" => render_state_snapshot(response),
+      "echo" => params
+    }
+
     %{
       "role" => "tool",
-      "parts" => [
-        %{
-          "functionResponse" => %{
-            "name" => name,
-            "response" => %{
-              "status" => outcome,
-              "state" => render_state_snapshot(response),
-              "echo" => params
-            }
-          }
-        }
-      ]
+      "tool_call_id" => name, # This might need adjustment based on actual OpenAI response
+      "name" => name,
+      "content" => Jason.encode!(content)
     }
   end
 
@@ -872,49 +732,40 @@ defmodule SmartTodo.Agent.LlmSession do
   end
 
   defp tool_error_turn(name, params, response) do
+    content = %{
+      "status" => "error",
+      "state" => render_state_snapshot(response),
+      "echo" => params
+    }
+
     %{
       "role" => "tool",
-      "parts" => [
-        %{
-          "functionResponse" => %{
-            "name" => name,
-            "response" => %{
-              "status" => "error",
-              "state" => render_state_snapshot(response),
-              "echo" => params
-            }
-          }
-        }
-      ]
+      "tool_call_id" => name,
+      "name" => name,
+      "content" => Jason.encode!(content)
     }
   end
 
   defp user_turn(user_text, response, :initial) do
     %{
       "role" => "user",
-      "parts" => [%{"text" => "User request: #{user_text}\n" <> render_state_text(response)}]
+      "content" => "User request: #{user_text}\n" <> render_state_text(response)
     }
   end
 
   defp user_turn(_user_text, response, :error) do
     %{
       "role" => "user",
-      "parts" => [
-        %{
-          "text" =>
-            "The previous command failed. Review the error details and try another command.\n" <>
-              render_state_text(response)
-        }
-      ]
+      "content" =>
+        "The previous command failed. Review the error details and try another command.\n" <>
+          render_state_text(response)
     }
   end
 
   defp user_turn(_user_text, response, :followup) do
     %{
       "role" => "user",
-      "parts" => [
-        %{"text" => "State updated. Provide the next command.\n" <> render_state_text(response)}
-      ]
+      "content" => "State updated. Provide the next command.\n" <> render_state_text(response)
     }
   end
 
@@ -1018,12 +869,18 @@ defmodule SmartTodo.Agent.LlmSession do
 
   defp render_commands(_), do: "- none"
 
+  defp system_message(scope) do
+    %{
+      "role" => "system",
+      "content" => system_prompt(scope)
+    }
+  end
+
   defp system_prompt(scope) do
     # Static base instructions (never changes - optimal for caching)
     base =
       """
       You manage SmartTodo tasks strictly through the provided function-call tools.
-
       ## Core Rules
       1. Every reply MUST be exactly one function call defined in `available_commands`.
       2. Read the state snapshot each turn; `available_commands` is the source of truth for what you can call.
@@ -1031,20 +888,16 @@ defmodule SmartTodo.Agent.LlmSession do
       4. New tasks are staged with `create_task`; existing tasks accumulate staged changes until you `complete_session` (commit) or `discard_all`.
       5. Whenever solving the request requires more than one command, call `record_plan` first to capture the steps you intend to take.
       6. `complete_session` MUST be the final command you ever issue in a session; after calling it you may not send any further commands.
-
       ## Task Target Format
       - Existing tasks: "existing:123" where 123 is the task ID
       - Pending tasks: "pending:1" where 1 is the pending reference number
       - Use task_id parameter for existing tasks, pending_ref parameter for pending tasks
-
       ## Status Values
       - todo: Not started
       - in_progress: Currently being worked on
       - done: Completed (filtered from open tasks)
-
       ## Urgency Values
       - low, normal, high, critical
-
       ## Recurrence Values
       - none, daily, weekly, monthly, yearly
       """

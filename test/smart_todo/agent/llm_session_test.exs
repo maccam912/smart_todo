@@ -10,14 +10,15 @@ defmodule SmartTodo.Agent.LlmSessionTest do
   defp stub_response(name, args) do
     {:ok,
      %{
-       "candidates" => [
+       "choices" => [
          %{
-           "content" => %{
-             "parts" => [
+           "message" => %{
+             "tool_calls" => [
                %{
-                 "functionCall" => %{
+                 "type" => "function",
+                 "function" => %{
                    "name" => name,
-                   "args" => args
+                   "arguments" => Jason.encode!(args)
                  }
                }
              ]
@@ -59,10 +60,10 @@ defmodule SmartTodo.Agent.LlmSessionTest do
     assert Enum.any?(Tasks.list_tasks(scope), &(&1.title == "Write integration tests"))
 
     assert_received {:llm_payload, payload}
-    assert %{"tools" => [%{"functionDeclarations" => declarations}]} = payload
+    assert %{"tools" => tools} = payload
 
-    assert Enum.any?(declarations, fn
-             %{"name" => "create_task"} -> true
+    assert Enum.any?(tools, fn
+             %{"function" => %{"name" => "create_task"}} -> true
              _ -> false
            end)
   end
@@ -84,11 +85,11 @@ defmodule SmartTodo.Agent.LlmSessionTest do
 
     assert_received {:tool_schema_payload, payload}
 
-    [%{"functionDeclarations" => declarations}] = payload["tools"]
-    record_plan = Enum.find(declarations, &(&1["name"] == "record_plan"))
+    tools = payload["tools"]
+    record_plan = Enum.find(tools, &(&1["function"]["name"] == "record_plan"))
 
-    assert get_in(record_plan, ["parameters", "properties", "steps", "type"]) == "array"
-    assert get_in(record_plan, ["parameters", "properties", "steps", "items", "type"]) == "string"
+    assert get_in(record_plan, ["function", "parameters", "properties", "steps", "type"]) == "array"
+    assert get_in(record_plan, ["function", "parameters", "properties", "steps", "items", "type"]) == "string"
   end
 
   test "recovers from state machine errors when possible" do
@@ -158,49 +159,6 @@ defmodule SmartTodo.Agent.LlmSessionTest do
     assert Enum.map(ctx.executed, & &1.name) == []
   end
 
-  test "uses Helicone proxy headers when configured" do
-    scope = AccountsFixtures.user_scope_fixture()
-
-    Process.put(:llm_responses, [stub_response("complete_session", %{})])
-
-    original = System.get_env("HELICONE_API_KEY")
-    System.put_env("HELICONE_API_KEY", "helicone-test")
-
-    on_exit(fn ->
-      if original do
-        System.put_env("HELICONE_API_KEY", original)
-      else
-        System.delete_env("HELICONE_API_KEY")
-      end
-    end)
-
-    request_fun = fn url, _payload, opts ->
-      assert String.starts_with?(url, "https://gateway.helicone.ai/v1beta/models/")
-
-      headers = Keyword.fetch!(opts, :headers)
-
-      assert {"Helicone-Auth", "Bearer helicone-test"} in headers
-      assert {"Helicone-Target-URL", "https://generativelanguage.googleapis.com"} in headers
-      assert {"Helicone-Property-App", "smart_todo"} in headers
-      assert {"Helicone-Property-UserId", Integer.to_string(scope.user.id)} in headers
-
-      case Process.get(:llm_responses) do
-        [resp | rest] ->
-          Process.put(:llm_responses, rest)
-          resp
-
-        _ ->
-          flunk("no more responses queued")
-      end
-    end
-
-    assert {:ok, _result} =
-             LlmSession.run(scope, "route via helicone",
-               request_fun: request_fun,
-               api_key: "test"
-             )
-  end
-
   test "includes user preferences in the system prompt" do
     scope = AccountsFixtures.user_scope_fixture()
 
@@ -214,7 +172,7 @@ defmodule SmartTodo.Agent.LlmSessionTest do
     Process.put(:llm_responses, [stub_response("complete_session", %{})])
 
     request_fun = fn _url, payload, _opts ->
-      send(self(), {:system_instruction, payload["systemInstruction"]})
+      send(self(), {:system_instruction, payload["messages"]})
 
       case Process.get(:llm_responses) do
         [resp | rest] ->
@@ -229,8 +187,8 @@ defmodule SmartTodo.Agent.LlmSessionTest do
     {:ok, _result} =
       LlmSession.run(scope, "Finish up", request_fun: request_fun, api_key: "test")
 
-    assert_received {:system_instruction, %{"parts" => [%{"text" => prompt_text}]}}
-    assert prompt_text =~ "User preferences:"
+    assert_received {:system_instruction, [%{"role" => "system", "content" => prompt_text} | _]}
+    assert prompt_text =~ "User Preferences"
     assert prompt_text =~ "Respond in Spanish."
   end
 

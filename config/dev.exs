@@ -2,8 +2,8 @@ import Config
 
 # Configure your database
 config :smart_todo, SmartTodo.Repo,
-  username: "postgres",
-  password: "postgres",
+  username: "jules",
+  password: "jules",
   hostname: "localhost",
   database: "smart_todo_dev",
   stacktrace: true,
